@@ -12,12 +12,21 @@ depends on which SDK/firmware your X2 Ultra runs:
                    (check the vendor docs / examples shipped with the robot).
   * Ros2Robot    - publishes text and gesture commands on ROS 2 topics,
                    for robots exposed through ROS 2 (requires rclpy).
-  * LocalRobot   - speaks through the local sound card with pyttsx3 and
-                   prints the wave, handy for testing on a laptop first.
+  * LocalRobot   - speaks on the local machine and prints the wave,
+                   handy for testing on a laptop first. Prefers the
+                   natural-sounding Piper neural voice when available,
+                   falling back to pyttsx3/eSpeak.
+
+Local Piper voice setup (natural, friendly, fully offline):
+    pip install piper-tts
+    curl -sSL -o ryan.tar.gz \\
+      https://github.com/rhasspy/piper/releases/download/v0.0.2/voice-en-us-ryan-high.tar.gz
+    mkdir -p voices && tar xzf ryan.tar.gz -C voices
 
 Usage:
     python3 cooper_greeting.py                 # auto-pick a backend
     python3 cooper_greeting.py --backend local # force local TTS test
+    python3 cooper_greeting.py --voice-model voices/en-us-ryan-high.onnx
     python3 cooper_greeting.py --backend ros2 --tts-topic /x2/tts_request \\
                                --gesture-topic /x2/gesture_request
 """
@@ -117,13 +126,42 @@ class Ros2Robot:
 
 
 class LocalRobot:
-    """Speaks through the local sound card (pip install pyttsx3).
+    """Speaks on the local machine, preferring a natural neural voice.
+
+    Uses Piper TTS (pip install piper-tts) with a downloaded .onnx voice
+    model when available - see the module docstring for setup. Falls
+    back to pyttsx3/eSpeak if Piper or the model is missing.
 
     There is no arm to wave on a laptop, so the wave is simulated with a
     console message - useful for checking the concurrent flow.
     """
 
+    def __init__(self, voice_model: str = ""):
+        self.voice_model = voice_model or self._find_voice_model()
+
+    @staticmethod
+    def _find_voice_model() -> str:
+        import glob
+        import os
+
+        here = os.path.dirname(os.path.abspath(__file__))
+        models = sorted(glob.glob(os.path.join(here, "voices", "*.onnx")))
+        return models[0] if models else ""
+
+    def _piper_ready(self) -> bool:
+        import os
+
+        if not (self.voice_model and os.path.exists(self.voice_model)):
+            return False
+        try:
+            import piper  # noqa: F401
+            return True
+        except ImportError:
+            return False
+
     def available(self) -> bool:
+        if self._piper_ready():
+            return True
         try:
             import pyttsx3  # noqa: F401
             return True
@@ -131,6 +169,41 @@ class LocalRobot:
             return False
 
     def speak(self, text: str) -> None:
+        if self._piper_ready():
+            self._speak_piper(text)
+        else:
+            self._speak_pyttsx3(text)
+
+    def _speak_piper(self, text: str) -> None:
+        """Synthesize with Piper's neural voice and play it back.
+
+        Playback goes through the first audio player found on the
+        system; with none available (e.g. a headless box) the audio is
+        kept as cooper_greeting_output.wav next to this script.
+        """
+        import os
+        import shutil
+        import subprocess
+        import sys
+
+        out_wav = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "cooper_greeting_output.wav"
+        )
+        subprocess.run(
+            [sys.executable, "-m", "piper", "-m", self.voice_model, "-f", out_wav],
+            input=text.encode(),
+            check=True,
+        )
+        for player in ("paplay", "aplay", "ffplay"):
+            exe = shutil.which(player)
+            if exe:
+                cmd = [exe, "-nodisp", "-autoexit", out_wav] if player == "ffplay" \
+                    else [exe, out_wav]
+                subprocess.run(cmd, check=False)
+                return
+        print(f"(no audio player found - synthesized speech saved to {out_wav})")
+
+    def _speak_pyttsx3(self, text: str) -> None:
         import pyttsx3
 
         engine = pyttsx3.init()
@@ -146,7 +219,7 @@ BACKENDS = {
     "agibot": lambda args: AgiBotRobot(),
     "ros2": lambda args: Ros2Robot(tts_topic=args.tts_topic,
                                    gesture_topic=args.gesture_topic),
-    "local": lambda args: LocalRobot(),
+    "local": lambda args: LocalRobot(voice_model=args.voice_model),
 }
 
 
@@ -186,6 +259,12 @@ def main() -> int:
         "--gesture-topic",
         default="/gesture_request",
         help="ROS 2 topic for gestures (default: /gesture_request)",
+    )
+    parser.add_argument(
+        "--voice-model",
+        default="",
+        help="path to a Piper .onnx voice model for the local backend "
+             "(default: first model found in ./voices/)",
     )
     args = parser.parse_args()
 

@@ -1,2 +1,8 @@
 __pycache__/
 *.py[cod]
+
+# Piper voice models (large binaries - see cooper_greeting.py for download steps)
+voices/
+
+# Audio generated at runtime by the local backend
+cooper_greeting_output.wav
