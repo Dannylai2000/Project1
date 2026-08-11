@@ -67,12 +67,12 @@ FINAL_MOTION_WAIT_S = 1.0
 # ── Sequence texts ────────────────────────────────────────────────────────────
 GREETING_TEXT  = "Thank You Caden for remembering me! Hello everyone! It is wonderful to be here with you today.:q"
 INTRO_TEXT     = (
-    " My name is Cooper. I am the One Comcenter Ambassador, a AI-Enabled humanoid robot. "
+    " My name is Cooper. I am the One Comcentre Ambassador, a AI-Enabled humanoid robot. "
     " I may still be in training, but I'm ready for the future."
     " Before I begin, please give me at least 2 meters distance. Here is my best move. I hope you enjoy the show!"
 )
 THANK_YOU_TEXT = "Thank you so much for watching! It was a true pleasure performing for you."
-GOODBY_TEXT = "See you in Once Comcentre for the future. Bye!"
+GOODBY_TEXT = "See you in One Comcentre for the future. Bye!"
 
 POST_TTS_GRACE_S = 0.2
 
