@@ -1,7 +1,33 @@
 # Project1
 Test
 
-## AgiBot X2 — Listening Toggle
+## AgiBot X2 — Showroom Demo (`x2_showroom_demo.py`)
+
+Refined show sequence for the real robot (ROS2 / AimDK). Changes vs. the
+original script:
+
+- **Listening is turned off** at the start via the AimDK `SetMute` service
+  (`/aimdk_5Fmsgs/srv/SetMute`), so the built-in assistant stops hearing and
+  answering the audience during the show. The mic **stays muted after the
+  show** by default; use `--unmute-after` to restore listening at the end,
+  or `--no-mute` to skip mic control entirely.
+- **Faster greeting**: the greeting speech starts immediately and the wave
+  runs *during* it instead of before it.
+- **No pause before the dance**: the LinkCraft dance resource is prefetched
+  in a background thread during the greeting, so step 3 only sends the
+  execute request.
+- **Faster ending**: the thank-you speech overlaps the heart gesture, and
+  the goodbye speech overlaps the blow kiss, with the wave right after.
+- Post-speech grace reduced from 0.5s to 0.2s.
+
+```bash
+source /opt/ros/humble/setup.bash && source ~/aimdk/install/setup.bash
+python3 x2_showroom_demo.py                 # muted show, stays muted
+python3 x2_showroom_demo.py --unmute-after  # restore listening afterwards
+python3 x2_showroom_demo.py --no-mute       # don't touch the mic
+```
+
+## AgiBot X2 — Listening Toggle (simulated)
 
 The AgiBot X2's microphones stay open by default so it can respond to the
 audience. The `agibot_x2` package adds an on/off switch for that listening,
