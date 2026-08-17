@@ -60,6 +60,10 @@ SHOW_SCRIPT     = Path(__file__).resolve().parent / "x2_showroom_demo.py"
 
 # Drop a photo of Cooper here (PNG) to use it as the panel's page icon.
 FAVICON_FILE    = Path(__file__).resolve().parent / "cooper_icon.png"
+
+# Shared panel settings (currently the dance shortlist), one file for all
+# devices, stored next to the server on Cooper.
+CONFIG_FILE     = Path(__file__).resolve().parent / "cooper_panel_config.json"
 FALLBACK_ICON_SVG = (
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">'
     '<rect width="64" height="64" rx="14" fill="#eef1f4"/>'
@@ -263,6 +267,44 @@ class ShowRunner:
         threading.Thread(target=watch, name="show-watch", daemon=True).start()
 
 
+class PanelConfig:
+    """Panel settings shared by all devices, persisted as a JSON file."""
+
+    MAX_KEYS = 500
+    MAX_KEY_LEN = 200
+
+    def __init__(self, path: Path) -> None:
+        self._path = path
+        self._lock = threading.Lock()
+
+    def get_shortlist(self) -> list[str]:
+        with self._lock:
+            try:
+                data = json.loads(self._path.read_text())
+                items = data.get("shortlist", [])
+            except (OSError, json.JSONDecodeError):
+                return []
+        return [str(k) for k in items if isinstance(k, str)]
+
+    def set_shortlist(self, keys) -> list[str]:
+        if not isinstance(keys, list):
+            raise ValueError("shortlist must be a list of resource keys")
+        cleaned = []
+        for k in keys[: self.MAX_KEYS]:
+            k = str(k).strip()[: self.MAX_KEY_LEN]
+            if k and k not in cleaned:
+                cleaned.append(k)
+        with self._lock:
+            try:
+                data = json.loads(self._path.read_text())
+            except (OSError, json.JSONDecodeError):
+                data = {}
+            data["shortlist"] = cleaned
+            self._path.write_text(json.dumps(data, indent=2))
+        LOGGER.info("Shortlist saved: %d song(s)", len(cleaned))
+        return cleaned
+
+
 MAX_MESSAGE_LEN = 500
 
 
@@ -288,7 +330,8 @@ def resolve_messages(body: dict) -> tuple[str | None, str | None]:
     return greeting, goodbye
 
 
-def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str):
+def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str,
+                 config: PanelConfig):
     class Handler(BaseHTTPRequestHandler):
         server_version = "CooperPanel/1.0"
 
@@ -346,6 +389,8 @@ def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str):
                     return self._send_json({"ok": True, "dances": node.list_dances()})
                 except Exception as exc:
                     return self._send_json({"ok": False, "error": str(exc)}, 502)
+            if self.path == "/api/shortlist":
+                return self._send_json({"ok": True, "shortlist": config.get_shortlist()})
             return self._send_json({"ok": False, "error": "not found"}, 404)
 
         def do_POST(self):
@@ -366,6 +411,10 @@ def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str):
                     listen = bool(body["listen"])
                     node.set_listening(listen)
                     return self._send_json({"ok": True, "listening": listen})
+
+                if self.path == "/api/shortlist":
+                    saved = config.set_shortlist(body.get("shortlist"))
+                    return self._send_json({"ok": True, "shortlist": saved})
 
                 if self.path == "/api/show":
                     greeting, goodbye = resolve_messages(body)
@@ -432,8 +481,9 @@ def main() -> None:
     spin_thread.start()
 
     shows = ShowRunner(node)
+    config = PanelConfig(CONFIG_FILE)
     server = ThreadingHTTPServer(
-        (args.bind, args.port), make_handler(node, shows, args.pin)
+        (args.bind, args.port), make_handler(node, shows, args.pin, config)
     )
     LOGGER.info("Cooper Control Panel at http://%s:%d/ (PIN %s)",
                 args.bind, args.port, "enabled" if args.pin else "DISABLED")

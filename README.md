@@ -58,8 +58,10 @@ Features:
   blank fields fall back to the script's built-in lines.
 - **Dance shortlist** — ⚙ Settings lists every song in Cooper's LinkCraft
   library with checkboxes; ticked songs are the only ones shown in the
-  main dance list (none ticked = show every song). Saved in the browser,
-  with Tick all / Clear all buttons.
+  main dance list (none ticked = show every song). The shortlist is
+  stored **on Cooper** (`cooper_panel_config.json` next to the server),
+  so every device shares the same list; changing it requires the PIN.
+  Tick all / Clear all buttons included.
 
 The control API (`cooper_panel_server.py`) always runs on Cooper:
 

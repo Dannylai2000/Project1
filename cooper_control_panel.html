@@ -373,15 +373,29 @@
   }
 
   // ── dance list + shortlist ─────────────────────────────────────────────
-  // The library can hold many songs; the shortlist (kept in the browser)
-  // limits what the main dance dropdown shows. Empty shortlist = show all.
+  // The library can hold many songs; the shortlist limits what the main
+  // dance dropdown shows. Empty shortlist = show all. It is stored on
+  // Cooper (cooper_panel_config.json), so every device shares one list.
   let allDances = [];
-  let shortlist = new Set(JSON.parse(localStorage.getItem("cooper_shortlist") || "[]"));
+  let shortlist = new Set();
 
   const danceLabel = d => (d.name !== d.key ? d.name : d.key.slice(-16));
 
-  function saveShortlist() {
-    localStorage.setItem("cooper_shortlist", JSON.stringify([...shortlist]));
+  async function saveShortlist() {
+    try {
+      await api("/api/shortlist", {
+        method: "POST",
+        body: JSON.stringify({ shortlist: [...shortlist] }),
+      });
+    } catch (e) {
+      status(`Saving shortlist failed: ${e.message}`, "err");
+      // Re-sync with what Cooper actually has.
+      try {
+        shortlist = new Set((await api("/api/shortlist")).shortlist);
+        renderShortlist();
+        renderDanceSelect();
+      } catch {}
+    }
   }
 
   function renderDanceSelect() {
@@ -417,8 +431,8 @@
       cb.checked = shortlist.has(d.key);
       cb.addEventListener("change", () => {
         if (cb.checked) shortlist.add(d.key); else shortlist.delete(d.key);
-        saveShortlist();
         renderDanceSelect();
+        saveShortlist();
       });
       label.appendChild(cb);
       label.appendChild(document.createTextNode(danceLabel(d)));
@@ -428,19 +442,37 @@
 
   function setAllShortlist(on) {
     shortlist = on ? new Set(allDances.map(d => d.key)) : new Set();
-    saveShortlist();
     renderShortlist();
     renderDanceSelect();
+    saveShortlist();
   }
 
   async function refreshDances() {
     try {
-      const { dances } = await api("/api/dances");
-      allDances = dances;
+      const [dRes, sRes] = await Promise.all([
+        api("/api/dances"),
+        api("/api/shortlist"),
+      ]);
+      allDances = dRes.dances;
+      shortlist = new Set(sRes.shortlist);
+
+      // One-time migration: move an old browser-stored shortlist to Cooper.
+      const legacy = localStorage.getItem("cooper_shortlist");
+      if (legacy) {
+        try {
+          const keys = JSON.parse(legacy);
+          if (Array.isArray(keys) && keys.length && !shortlist.size) {
+            shortlist = new Set(keys);
+            await saveShortlist();
+          }
+        } catch {}
+        localStorage.removeItem("cooper_shortlist");
+      }
+
       renderShortlist();
       renderDanceSelect();
       const shown = $("dances").options.length;
-      status(`Song library loaded: ${dances.length} song(s), ${shown} in the dance list.`, "ok");
+      status(`Song library loaded: ${allDances.length} song(s), ${shown} in the dance list.`, "ok");
     } catch (e) {
       status(`Loading dances failed: ${e.message}`, "err");
     }
