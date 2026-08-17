@@ -1,0 +1,800 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cooper Control Panel</title>
+<link rel="icon" id="favicon" href="favicon.png">
+<style>
+  :root {
+    --bg: #101418; --panel: #1a2027; --edge: #2c3540;
+    --text: #e8edf2; --dim: #8b98a5;
+    --accent: #35b6ff; --ok: #3ecf8e; --bad: #ff6b6b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 20px; background: var(--bg); color: var(--text);
+    font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+    display: flex; justify-content: center;
+  }
+  main { width: 100%; max-width: 480px; }
+
+  /* Header */
+  header { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+  header h1 { font-size: 20px; margin: 0; flex: 1; }
+  .conn { display: flex; align-items: center; gap: 6px; color: var(--dim); font-size: 13px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--dim); }
+  .dot.on { background: var(--ok); } .dot.off { background: var(--bad); }
+  #gear {
+    background: var(--accent); border: 0; color: #04202f; font-weight: 650;
+    border-radius: 10px; padding: 8px 14px; font-size: 14px; cursor: pointer;
+  }
+
+  section {
+    background: var(--panel); border: 1px solid var(--edge);
+    border-radius: 14px; padding: 18px; margin-top: 14px;
+  }
+  section h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em;
+               color: var(--dim); margin: 0 0 12px; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .row + .row { margin-top: 12px; }
+
+  input[type=text], input[type=password], input[type=number], select {
+    background: #0d1116; color: var(--text); border: 1px solid var(--edge);
+    border-radius: 8px; padding: 10px 12px; font-size: 16px;
+  }
+  input[type=text], input[type=password] { flex: 1; min-width: 150px; }
+  input[type=number] { width: 92px; }
+  input[readonly] { opacity: .55; }
+  select { flex: 1; min-width: 0; }
+  .field select, .field input { width: 100%; }
+
+  /* Dance shortlist (in settings) */
+  #shortlist {
+    background: #0d1116; border: 1px solid var(--edge); border-radius: 8px;
+    padding: 10px 12px; max-height: 190px; overflow-y: auto;
+    display: flex; flex-direction: column; gap: 7px; font-size: 14.5px;
+  }
+  #shortlist label { display: flex; gap: 9px; align-items: center; cursor: pointer; }
+  #shortlist input[type=checkbox] { width: 17px; height: 17px; accent-color: var(--accent); }
+  #shortlist .empty { color: var(--dim); }
+  .pill {
+    background: var(--warn); color: #3a2600; border-radius: 5px;
+    font-size: 11px; font-weight: 750; padding: 1px 7px; margin-left: auto;
+  }
+  #newNotice {
+    background: rgba(255, 180, 84, .12); border: 1px solid var(--warn);
+    border-radius: 10px; padding: 10px 12px;
+  }
+  #newNotice span { color: var(--warn); font-size: 14px; flex: 1; }
+
+  /* Performance diagnostics */
+  #diagLog {
+    background: #0d1116; border: 1px solid var(--edge); border-radius: 8px;
+    padding: 10px 12px; max-height: 190px; overflow-y: auto;
+    font: 12.5px/1.7 ui-monospace, monospace; color: var(--dim);
+    white-space: pre-wrap;
+  }
+  #diagLog .empty { color: var(--dim); font-family: inherit; }
+  #diagLog .fast { color: var(--ok); }
+  #diagLog .mid  { color: var(--warn); }
+  #diagLog .slow { color: var(--bad); }
+
+  /* Timing flow diagram */
+  #diagFlow {
+    background: #0d1116; border: 1px solid var(--edge); border-radius: 8px;
+    padding: 14px 12px; margin-bottom: 10px;
+  }
+  .flowRow { display: flex; align-items: center; justify-content: center;
+             gap: 8px; flex-wrap: wrap; }
+  .fnode {
+    background: var(--panel); border: 1px solid var(--edge); border-radius: 10px;
+    padding: 8px 12px; text-align: center; font-size: 13px; min-width: 86px;
+  }
+  .fnode small { color: var(--accent); font-weight: 650; }
+  .farrow { text-align: center; color: var(--dim); font-size: 12px; min-width: 64px; }
+  .farrow span { color: var(--accent); font-weight: 650; font-size: 13px; }
+  .farrow div { line-height: .8; font-size: 16px; }
+  .flowRow.timeline {
+    margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--edge);
+    color: var(--dim); font-size: 13px; justify-content: flex-start;
+  }
+  .flowRow.timeline b { color: var(--accent); font-weight: 650; }
+
+  button {
+    background: var(--accent); color: #04202f; border: 0; border-radius: 10px;
+    padding: 12px 18px; font-size: 16px; font-weight: 650; cursor: pointer;
+  }
+  button.secondary { background: #2c3540; color: var(--text); font-weight: 500; }
+  button:disabled { opacity: .45; cursor: default; }
+  button.big { width: 100%; padding: 14px; font-size: 17px; }
+
+  /* Listening switch */
+  .switchRow { display: flex; align-items: center; gap: 14px; }
+  .switch { position: relative; width: 58px; height: 32px; flex: none; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .slider {
+    position: absolute; inset: 0; border-radius: 32px; background: #3a2a2a;
+    border: 1px solid var(--edge); transition: background .15s; cursor: pointer;
+  }
+  .slider::before {
+    content: ""; position: absolute; width: 24px; height: 24px; border-radius: 50%;
+    left: 3px; top: 3px; background: var(--bad); transition: all .15s;
+  }
+  .switch input:checked + .slider { background: #14352a; }
+  .switch input:checked + .slider::before { left: 29px; background: var(--ok); }
+  .switch input:disabled + .slider { opacity: .45; cursor: default; }
+  #listenLabel { font-size: 17px; font-weight: 600; }
+  #listenHint { color: var(--dim); font-size: 13px; margin-top: 6px; }
+
+  label.chk { display: flex; gap: 8px; align-items: center; color: var(--dim);
+              font-size: 14px; user-select: none; }
+
+  /* Message editor */
+  details.card {
+    background: var(--panel); border: 1px solid var(--edge);
+    border-radius: 14px; margin-top: 14px;
+  }
+  details.card summary {
+    padding: 16px 18px; cursor: pointer; list-style: none;
+    font-size: 12px; text-transform: uppercase; letter-spacing: .08em;
+    color: var(--dim); user-select: none;
+  }
+  details.card summary::-webkit-details-marker { display: none; }
+  details.card summary::after { content: "▸"; float: right; }
+  details.card[open] summary::after { content: "▾"; }
+  details.card .inner { padding: 0 18px 18px; }
+  .field { margin-top: 12px; }
+  .field label { display: block; color: var(--dim); font-size: 13px; margin-bottom: 4px; }
+  textarea {
+    width: 100%; min-height: 58px; resize: vertical;
+    background: #0d1116; color: var(--text); border: 1px solid var(--edge);
+    border-radius: 8px; padding: 10px 12px; font-size: 15px; font-family: inherit;
+  }
+  .hint { color: var(--dim); font-size: 12.5px; margin-top: 10px; }
+  .hint code { background: #0d1116; border: 1px solid var(--edge);
+               border-radius: 4px; padding: 0 5px; }
+  #settings { display: none; }
+  #settings.open { display: block; }
+
+  #status {
+    margin-top: 14px; padding: 10px 14px; border-radius: 10px; font-size: 14px;
+    background: #0d1116; border: 1px solid var(--edge); color: var(--dim);
+    min-height: 42px;
+  }
+  #status.ok { color: var(--ok); } #status.err { color: var(--bad); }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>🤖 Cooper</h1>
+    <button id="gear" title="Change IP address, port, or PIN">⚙ Settings</button>
+    <span class="conn"><span class="dot" id="connDot"></span><span id="connText">connecting…</span></span>
+  </header>
+
+  <section id="settings">
+    <h2>Connection</h2>
+    <div class="field">
+      <label for="profile">Where is Cooper being used?</label>
+      <select id="profile">
+        <option value="suite">Show suite — One Comcentre</option>
+        <option value="robot">Cooper's built-in webserver</option>
+        <option value="event">Outside event — portable setup</option>
+      </select>
+    </div>
+    <div class="row">
+      <input type="text" id="ip" placeholder="Cooper IP address">
+      <input type="number" id="port" value="8080" min="1" max="65535" title="Port">
+    </div>
+    <div class="hint" id="profileHint"></div>
+    <div class="row">
+      <input type="password" id="pin" placeholder="Panel PIN">
+      <button id="connect">Connect</button>
+    </div>
+    <div class="row" style="margin-top:4px">
+      <label class="chk"><input type="checkbox" id="diagToggle">
+        Performance diagnostics — show Cooper's response times</label>
+    </div>
+    <div class="field">
+      <label>Dance song shortlist — ticked songs appear in the dance list
+        (none ticked = show every song)</label>
+      <div id="shortlist"><span class="empty">Connect to Cooper to load the song library.</span></div>
+      <div class="row" style="margin-top:8px">
+        <button class="secondary" id="slAll">Tick all</button>
+        <button class="secondary" id="slNone">Clear all</button>
+        <button class="secondary" id="markSeen" style="display:none">Mark NEW as seen</button>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Listening</h2>
+    <div class="switchRow">
+      <label class="switch">
+        <input type="checkbox" id="listenSwitch">
+        <span class="slider"></span>
+      </label>
+      <span id="listenLabel">…</span>
+    </div>
+    <div id="listenHint">Off = Cooper ignores surrounding conversation.</div>
+  </section>
+
+  <section>
+    <h2>Performance</h2>
+    <div class="row" id="newNotice" style="display:none">
+      <span id="newNoticeText">✨ New dance songs from LinkCraft</span>
+      <button class="secondary" id="reviewNew">Review</button>
+    </div>
+    <div class="row">
+      <select id="dances"><option value="">Loading dances…</option></select>
+      <button class="secondary" id="refresh" title="Reload dance list">↻</button>
+    </div>
+    <div class="row">
+      <button class="big" id="runShow">▶ Run full show</button>
+    </div>
+    <div class="row">
+      <button class="secondary" id="playDance">Play dance only</button>
+      <label class="chk"><input type="checkbox" id="unmuteAfter"> listen again after show</label>
+    </div>
+  </section>
+
+  <details class="card" id="messages">
+    <summary>Personalize messages</summary>
+    <div class="inner">
+      <div class="field">
+        <label for="guestName">Tenant company / guest name</label>
+        <input type="text" id="guestName" placeholder="e.g. ABC Company, Mr. Chan — blank = “everyone”">
+      </div>
+      <div class="field">
+        <label for="greetAM">Welcome — morning (before 12:00)</label>
+        <textarea id="greetAM"></textarea>
+      </div>
+      <div class="field">
+        <label for="greetPM">Welcome — afternoon / evening</label>
+        <textarea id="greetPM"></textarea>
+      </div>
+      <div class="field">
+        <label for="introMsg">Introduction (before the dance)</label>
+        <textarea id="introMsg"></textarea>
+      </div>
+      <div class="field">
+        <label for="goodbyeMsg">Goodbye</label>
+        <textarea id="goodbyeMsg"></textarea>
+      </div>
+      <div class="hint">
+        Cooper picks the morning or afternoon welcome automatically at show
+        time. <code>{name}</code> anywhere in a message is replaced by the
+        name above. Edit the text freely — it is spoken exactly as written.
+      </div>
+      <div class="row" style="margin-top:12px">
+        <button class="secondary" id="resetMsgs">Reset to default messages</button>
+      </div>
+    </div>
+  </details>
+
+  <div id="status">Ready.</div>
+
+  <section id="diagCard" style="display:none">
+    <h2>Performance diagnostics</h2>
+
+    <div id="diagFlow">
+      <div class="flowRow">
+        <div class="fnode">📱<div>You tap</div></div>
+        <div class="farrow"><span id="fNet">—</span><div>→</div><small>network</small></div>
+        <div class="fnode">🌐<div>Web server</div><small id="fSrv">—</small></div>
+        <div class="farrow"><span id="fAck">—</span><div>→</div><small>robot ack</small></div>
+        <div class="fnode">🤖<div>Cooper acts</div></div>
+      </div>
+      <div class="flowRow timeline" id="showFlow">
+        <span>Full show (from click):</span>
+        <span>launch <b id="fLaunch">—</b></span> →
+        <span>first speech <b id="fSpeech">—</b></span> →
+        <span>dance <b id="fDance">—</b></span> →
+        <span>goodbye <b id="fBye">—</b></span> →
+        <span>complete <b id="fDone">—</b></span>
+      </div>
+    </div>
+
+    <div id="diagLog"><span class="empty">No measurements yet — press any control button.</span></div>
+    <div class="hint">Top row shows the last button press: network = browser ↔ Cooper,
+      web server = processing on Cooper, robot ack = Cooper's controller accepting the
+      command. The show timeline updates live from the robot as the show reaches each
+      milestone — "first speech" is the moment the greeting audio is accepted.</div>
+    <div class="row" style="margin-top:10px">
+      <button class="secondary" id="diagClear">Clear</button>
+    </div>
+  </section>
+</main>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  let showRunning = false;
+
+  function status(msg, cls = "") {
+    $("status").className = cls;
+    $("status").textContent = msg;
+  }
+
+  // ── connection settings (saved in the browser) ─────────────────────────
+  // One dropdown covers the three hosting setups; only the event profile
+  // needs a typed address, and it is remembered for next time.
+  const COOPER_SUITE_IP = "192.168.68.54";   // Cooper on the show-suite network
+  const PROFILES = {
+    suite: {
+      ip: () => COOPER_SUITE_IP, port: () => "8080", fixed: true,
+      hint: `Panel hosted on optimus (Apache) — controls Cooper at ${COOPER_SUITE_IP}.`,
+    },
+    robot: {
+      ip: () => location.hostname || COOPER_SUITE_IP,
+      port: () => location.port || "8080", fixed: true,
+      hint: "Panel hosted by Cooper's built-in webserver — address is automatic.",
+    },
+    event: {
+      ip: () => localStorage.getItem("cooper_event_ip") || COOPER_SUITE_IP,
+      port: () => localStorage.getItem("cooper_event_port") || "8080", fixed: false,
+      hint: "Portable setup — type Cooper's IP address on the event network below.",
+    },
+  };
+
+  function applyProfile(key) {
+    const p = PROFILES[key] || PROFILES.suite;
+    $("profile").value = PROFILES[key] ? key : "suite";
+    localStorage.setItem("cooper_profile", $("profile").value);
+    $("ip").value = p.ip();
+    $("port").value = p.port();
+    $("ip").readOnly = $("port").readOnly = p.fixed;
+    $("profileHint").textContent = p.hint;
+  }
+
+  $("pin").value = localStorage.getItem("cooper_pin") || "";
+  applyProfile(
+    localStorage.getItem("cooper_profile") ||
+    (location.hostname === COOPER_SUITE_IP ? "robot" : "suite")
+  );
+
+  const base = () => `http://${$("ip").value.trim()}:${$("port").value.trim()}`;
+
+  // ── personalized messages (saved in the browser) ───────────────────────
+  const DEFAULT_MSGS = {
+    greetAM: "Good morning {name}! Welcome to One Comcentre. It is wonderful to see you today.",
+    greetPM: "Good afternoon {name}! Welcome to One Comcentre. It is wonderful to see you today.",
+    introMsg: "My name is Cooper. I am the One Comcentre Ambassador, an AI-enabled humanoid robot. " +
+      "I may still be in training, but I'm ready for the future. " +
+      "Before I begin, please give me at least 2 meters distance. " +
+      "Here is my best move. I hope you enjoy the show!",
+    goodbyeMsg: "Thank you for visiting. See you in One Comcentre for the future. Bye!",
+  };
+  const MSG_FIELDS = ["guestName", "greetAM", "greetPM", "introMsg", "goodbyeMsg"];
+
+  function loadMessages() {
+    for (const id of MSG_FIELDS) {
+      const saved = localStorage.getItem("cooper_" + id);
+      $(id).value = saved !== null ? saved : (DEFAULT_MSGS[id] || "");
+    }
+  }
+  function resetMessages() {
+    for (const id of MSG_FIELDS) {
+      $(id).value = DEFAULT_MSGS[id] || "";
+      localStorage.removeItem("cooper_" + id);
+    }
+    status("Messages reset to defaults.", "ok");
+  }
+  document.addEventListener("input", e => {
+    if (MSG_FIELDS.includes(e.target.id)) {
+      localStorage.setItem("cooper_" + e.target.id, e.target.value);
+    }
+  });
+  loadMessages();
+
+  function saveSettings() {
+    localStorage.setItem("cooper_pin", $("pin").value);
+    if ($("profile").value === "event") {
+      localStorage.setItem("cooper_event_ip", $("ip").value.trim());
+      localStorage.setItem("cooper_event_port", $("port").value.trim());
+    }
+  }
+
+  async function api(path, opts = {}) {
+    const t0 = performance.now();
+    const res = await fetch(base() + path, {
+      headers: { "Content-Type": "application/json", "X-Pin": $("pin").value },
+      ...opts,
+    });
+    const data = await res.json().catch(() => ({}));
+    data._client_ms = performance.now() - t0;
+    if (res.status === 401) {
+      $("settings").classList.add("open");
+      throw new Error("PIN required — enter it in ⚙ settings");
+    }
+    if (!res.ok || data.ok === false) throw new Error(data.error || `HTTP ${res.status}`);
+    return data;
+  }
+
+  // ── performance diagnostics ────────────────────────────────────────────
+  let diagOn = localStorage.getItem("cooper_diag") === "1";
+  const diagEntries = [];
+
+  function setDiag(on) {
+    diagOn = on;
+    localStorage.setItem("cooper_diag", on ? "1" : "0");
+    $("diagToggle").checked = on;
+    $("diagCard").style.display = on ? "block" : "none";
+  }
+
+  const fmtMs = ms => (ms < 1000 ? `${Math.round(ms)} ms` : `${(ms / 1000).toFixed(1)} s`);
+
+  function logDiag(action, data) {
+    if (!diagOn) return;
+    const total = Math.round(data._client_ms || 0);
+    const t = data.timing || {};
+    const server = t.server_total_ms;
+
+    // Fill the flow diagram with this action's leg times.
+    if (server != null) {
+      $("fNet").textContent = fmtMs(Math.max(0, total - server));
+      $("fSrv").textContent = fmtMs(server);
+    }
+    $("fAck").textContent = t.robot_ack_ms != null ? fmtMs(t.robot_ack_ms) : "—";
+    if (t.launch_ms != null) $("fLaunch").textContent = fmtMs(total);
+    const parts = [`total ${total} ms`];
+    if (server != null) {
+      parts.push(`network ${Math.max(0, Math.round(total - server))} ms`);
+      parts.push(`server ${Math.round(server)} ms`);
+    }
+    if (t.robot_ack_ms != null) parts.push(`robot ${Math.round(t.robot_ack_ms)} ms`);
+    if (t.service_wait_ms != null && t.service_wait_ms >= 1)
+      parts.push(`svc wait ${Math.round(t.service_wait_ms)} ms`);
+    if (t.library_lookup_ms != null && t.library_lookup_ms >= 1)
+      parts.push(`lookup ${Math.round(t.library_lookup_ms)} ms`);
+    if (t.launch_ms != null) parts.push(`launch ${Math.round(t.launch_ms)} ms`);
+    const cls = total < 400 ? "fast" : total < 1500 ? "mid" : "slow";
+    diagEntries.unshift({
+      time: new Date().toLocaleTimeString(),
+      action, text: parts.join(" · "), cls,
+    });
+    if (diagEntries.length > 10) diagEntries.pop();
+    renderDiag();
+  }
+
+  // Show milestones (from the show script's timing file, via /api/status).
+  let shownShow = { at: null, seen: new Set() };
+  const SHOW_MILESTONES = [
+    ["first_speech_ms", "First speech", "fSpeech"],
+    ["dance_started_ms", "Dance started", "fDance"],
+    ["goodbye_speech_ms", "Goodbye speech", "fBye"],
+    ["show_complete_ms", "Show complete", "fDone"],
+  ];
+
+  function trackShowTiming(st) {
+    if (!diagOn || !st) return;
+    if (shownShow.at !== st.requested_at) {
+      shownShow = { at: st.requested_at, seen: new Set() };
+      ["fSpeech", "fDance", "fBye", "fDone"].forEach(id => { $(id).textContent = "—"; });
+    }
+    for (const [key, label, elId] of SHOW_MILESTONES) {
+      if (st[key] == null) continue;
+      $(elId).textContent = fmtMs(st[key]);
+      if (!shownShow.seen.has(key)) {
+        shownShow.seen.add(key);
+        diagEntries.unshift({
+          time: new Date().toLocaleTimeString(),
+          action: "Show",
+          text: `${label} after ${fmtMs(st[key])} (from click)`,
+          cls: key === "first_speech_ms"
+            ? (st[key] < 2500 ? "fast" : st[key] < 5000 ? "mid" : "slow")
+            : "",
+        });
+        if (diagEntries.length > 10) diagEntries.pop();
+        renderDiag();
+      }
+    }
+  }
+
+  function renderDiag() {
+    const box = $("diagLog");
+    box.innerHTML = "";
+    if (!diagEntries.length) {
+      box.innerHTML = '<span class="empty">No measurements yet — press any control button.</span>';
+      return;
+    }
+    for (const e of diagEntries) {
+      const line = document.createElement("div");
+      line.className = e.cls;
+      line.textContent = `${e.time}  ${e.action}: ${e.text}`;
+      box.appendChild(line);
+    }
+  }
+  setDiag(diagOn);
+
+  // ── live status (polled every 3 s) ─────────────────────────────────────
+  function render(s) {
+    $("connDot").className = "dot on";
+    $("connText").textContent = diagOn && s._client_ms != null
+      ? `connected · ${Math.round(s._client_ms)} ms`
+      : "connected";
+
+    showRunning = !!s.show_running;
+    $("runShow").disabled = showRunning;
+    $("playDance").disabled = showRunning;
+    $("runShow").textContent = showRunning ? "⏳ Show running…" : "▶ Run full show";
+
+    const sw = $("listenSwitch");
+    sw.disabled = showRunning;
+    if (s.listening === true)  { sw.checked = true;  $("listenLabel").textContent = "Listening"; }
+    else if (s.listening === false) { sw.checked = false; $("listenLabel").textContent = "Muted"; }
+    else { sw.checked = false; $("listenLabel").textContent = "Unknown"; }
+    $("listenHint").textContent = showRunning
+      ? "The show controls the microphone while it is running."
+      : "Off = Cooper ignores surrounding conversation.";
+
+    // Show milestones reported live by the running show script.
+    trackShowTiming(s.show_timing);
+
+    // New-song alert from Cooper's background library check.
+    const n = s.new_songs || 0;
+    $("newNotice").style.display = n ? "flex" : "none";
+    if (n) {
+      $("newNoticeText").textContent =
+        `✨ ${n} new dance song${n > 1 ? "s" : ""} arrived from LinkCraft`;
+    }
+  }
+
+  let pollTimer = null;
+  async function poll() {
+    try {
+      render(await api("/api/status"));
+    } catch (e) {
+      $("connDot").className = "dot off";
+      $("connText").textContent = "offline";
+    }
+  }
+  function startPolling() {
+    if (pollTimer) clearInterval(pollTimer);
+    pollTimer = setInterval(poll, 3000);
+  }
+
+  // ── actions ────────────────────────────────────────────────────────────
+  async function connect() {
+    saveSettings();
+    if (!$("ip").value.trim()) { status("Enter Cooper's IP address in ⚙ settings.", "err"); return; }
+    try {
+      const s = await api("/api/status");
+      render(s);
+      $("settings").classList.remove("open");
+      status("Connected to Cooper.", "ok");
+      startPolling();
+      await refreshDances();
+    } catch (e) {
+      $("connDot").className = "dot off";
+      $("connText").textContent = "offline";
+      status(`Cannot reach Cooper: ${e.message}`, "err");
+    }
+  }
+
+  // ── dance list + shortlist ─────────────────────────────────────────────
+  // The library can hold many songs; the shortlist limits what the main
+  // dance dropdown shows. Empty shortlist = show all. It is stored on
+  // Cooper (cooper_panel_config.json), so every device shares one list.
+  let allDances = [];
+  let shortlist = new Set();
+
+  const danceLabel = d => (d.name !== d.key ? d.name : d.key.slice(-16));
+
+  async function saveShortlist() {
+    try {
+      await api("/api/shortlist", {
+        method: "POST",
+        body: JSON.stringify({ shortlist: [...shortlist] }),
+      });
+    } catch (e) {
+      status(`Saving shortlist failed: ${e.message}`, "err");
+      // Re-sync with what Cooper actually has.
+      try {
+        shortlist = new Set((await api("/api/shortlist")).shortlist);
+        renderShortlist();
+        renderDanceSelect();
+      } catch {}
+    }
+  }
+
+  function renderDanceSelect() {
+    const sel = $("dances");
+    const picked = shortlist.size ? allDances.filter(d => shortlist.has(d.key)) : [];
+    const pool = picked.length ? picked : allDances;  // stale/empty shortlist → all
+    sel.innerHTML = "";
+    if (!pool.length) {
+      sel.innerHTML = '<option value="">No dances found</option>';
+      return;
+    }
+    for (const d of pool) {
+      const opt = document.createElement("option");
+      opt.value = d.key;
+      opt.textContent = danceLabel(d);
+      sel.appendChild(opt);
+    }
+    const last = localStorage.getItem("cooper_dance");
+    if (last && [...sel.options].some(o => o.value === last)) sel.value = last;
+  }
+
+  function renderShortlist() {
+    const box = $("shortlist");
+    box.innerHTML = "";
+    const anyNew = allDances.some(d => d.is_new);
+    $("markSeen").style.display = anyNew ? "inline-block" : "none";
+    if (!allDances.length) {
+      box.innerHTML = '<span class="empty">Connect to Cooper to load the song library.</span>';
+      return;
+    }
+    // New arrivals first, so they cannot be missed.
+    const sorted = [...allDances].sort((a, b) => (b.is_new ? 1 : 0) - (a.is_new ? 1 : 0));
+    for (const d of sorted) {
+      const label = document.createElement("label");
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.checked = shortlist.has(d.key);
+      cb.addEventListener("change", () => {
+        if (cb.checked) shortlist.add(d.key); else shortlist.delete(d.key);
+        renderDanceSelect();
+        saveShortlist();
+      });
+      label.appendChild(cb);
+      label.appendChild(document.createTextNode(danceLabel(d)));
+      if (d.is_new) {
+        const pill = document.createElement("span");
+        pill.className = "pill";
+        pill.textContent = "NEW";
+        label.appendChild(pill);
+      }
+      box.appendChild(label);
+    }
+  }
+
+  function setAllShortlist(on) {
+    shortlist = on ? new Set(allDances.map(d => d.key)) : new Set();
+    renderShortlist();
+    renderDanceSelect();
+    saveShortlist();
+  }
+
+  async function refreshDances() {
+    try {
+      const [dRes, sRes] = await Promise.all([
+        api("/api/dances"),
+        api("/api/shortlist"),
+      ]);
+      allDances = dRes.dances;
+      shortlist = new Set(sRes.shortlist);
+
+      // One-time migration: move an old browser-stored shortlist to Cooper.
+      const legacy = localStorage.getItem("cooper_shortlist");
+      if (legacy) {
+        try {
+          const keys = JSON.parse(legacy);
+          if (Array.isArray(keys) && keys.length && !shortlist.size) {
+            shortlist = new Set(keys);
+            await saveShortlist();
+          }
+        } catch {}
+        localStorage.removeItem("cooper_shortlist");
+      }
+
+      renderShortlist();
+      renderDanceSelect();
+      const shown = $("dances").options.length;
+      const fresh = allDances.filter(d => d.is_new).length;
+      status(`Song library loaded: ${allDances.length} song(s), ${shown} in the dance list` +
+             (fresh ? `, ${fresh} NEW` : "") + ".", "ok");
+    } catch (e) {
+      status(`Loading dances failed: ${e.message}`, "err");
+    }
+  }
+
+  $("listenSwitch").addEventListener("change", async e => {
+    const listen = e.target.checked;
+    e.target.disabled = true;
+    try {
+      const data = await api("/api/listening", { method: "POST", body: JSON.stringify({ listen }) });
+      logDiag(listen ? "Listening ON" : "Listening OFF", data);
+      status(listen ? "Cooper is listening." : "Cooper is muted.", "ok");
+    } catch (err) {
+      e.target.checked = !listen;
+      status(`Could not change listening: ${err.message}`, "err");
+    } finally {
+      e.target.disabled = showRunning;
+      poll();
+    }
+  });
+
+  $("playDance").addEventListener("click", async () => {
+    const key = $("dances").value;
+    if (!key) { status("Pick a dance first.", "err"); return; }
+    localStorage.setItem("cooper_dance", key);
+    $("playDance").disabled = true;
+    try {
+      const data = await api("/api/dance", { method: "POST", body: JSON.stringify({ key }) });
+      logDiag("Play dance", data);
+      status(`Dance started: ${$("dances").selectedOptions[0].textContent}`, "ok");
+    } catch (e) {
+      status(`Dance failed: ${e.message}`, "err");
+    } finally {
+      $("playDance").disabled = showRunning;
+    }
+  });
+
+  $("runShow").addEventListener("click", async () => {
+    localStorage.setItem("cooper_dance", $("dances").value);
+    $("runShow").disabled = true;
+    try {
+      const data = await api("/api/show", {
+        method: "POST",
+        body: JSON.stringify({
+          dance_key: $("dances").value || null,
+          unmute_after: $("unmuteAfter").checked,
+          name: $("guestName").value.trim(),
+          greeting_am: $("greetAM").value.trim(),
+          greeting_pm: $("greetPM").value.trim(),
+          intro: $("introMsg").value.trim(),
+          goodbye: $("goodbyeMsg").value.trim(),
+        }),
+      });
+      logDiag("Run show", data);
+      status("Show started — Cooper is muted for the performance.", "ok");
+      poll();
+    } catch (e) {
+      status(`Show failed: ${e.message}`, "err");
+      $("runShow").disabled = false;
+    }
+  });
+
+  $("gear").addEventListener("click", () => $("settings").classList.toggle("open"));
+  $("resetMsgs").addEventListener("click", resetMessages);
+  $("profile").addEventListener("change", e => { applyProfile(e.target.value); connect(); });
+  $("slAll").addEventListener("click", () => setAllShortlist(true));
+  $("slNone").addEventListener("click", () => setAllShortlist(false));
+  $("reviewNew").addEventListener("click", async () => {
+    $("settings").classList.add("open");
+    await refreshDances();
+    $("shortlist").scrollIntoView({ behavior: "smooth", block: "center" });
+  });
+  $("diagToggle").addEventListener("change", e => setDiag(e.target.checked));
+  $("diagClear").addEventListener("click", () => { diagEntries.length = 0; renderDiag(); });
+  $("markSeen").addEventListener("click", async () => {
+    try {
+      await api("/api/songs_seen", { method: "POST", body: "{}" });
+      status("New songs acknowledged.", "ok");
+      await refreshDances();
+      poll();
+    } catch (e) {
+      status(`Could not mark songs as seen: ${e.message}`, "err");
+    }
+  });
+  $("connect").addEventListener("click", connect);
+  $("refresh").addEventListener("click", refreshDances);
+  ["ip", "port", "pin"].forEach(id =>
+    $(id).addEventListener("keydown", e => { if (e.key === "Enter") connect(); }));
+
+  connect();
+
+  // Page icon: served by Cooper at /favicon.png (real PNG if cooper_icon.png
+  // is installed next to the server). When the page is opened directly from
+  // a file, fall back to the built-in Cooper icon.
+  const COOPER_SVG =
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">' +
+    '<rect width="64" height="64" rx="14" fill="#eef1f4"/>' +
+    '<rect x="17" y="7" width="30" height="32" rx="13" fill="#17191c"/>' +
+    '<rect x="26" y="17" width="3" height="8" rx="1.5" fill="#fff"/>' +
+    '<rect x="35" y="17" width="3" height="8" rx="1.5" fill="#fff"/>' +
+    '<rect x="27" y="29" width="10" height="2.6" rx="1.3" fill="#fff"/>' +
+    '<rect x="10" y="42" width="44" height="18" rx="9" fill="#fbfcfd" stroke="#c6ced6" stroke-width="1.5"/>' +
+    '<circle cx="32" cy="48" r="1.7" fill="#17191c"/>' +
+    '<circle cx="32" cy="54" r="1.7" fill="#17191c"/>' +
+    '</svg>';
+  if (location.protocol === "file:") {
+    $("favicon").href = "data:image/svg+xml," + encodeURIComponent(COOPER_SVG);
+  }
+})();
+</script>
+</body>
+</html>
