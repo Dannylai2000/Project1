@@ -86,6 +86,8 @@ class IntroSequenceNode(Node):
         unmute_after: bool,
         dance_key: str = DANCE_RESOURCE_KEY,
         dance_duration_s: float = DANCE_DURATION_S,
+        greeting_text: str = GREETING_TEXT,
+        goodbye_text: str = GOODBY_TEXT,
     ) -> None:
         super().__init__("x2_intro_sequence")
 
@@ -95,6 +97,8 @@ class IntroSequenceNode(Node):
         self._unmute_after = unmute_after
         self._dance_key = dance_key
         self._dance_duration_s = dance_duration_s
+        self._greeting_text = greeting_text or GREETING_TEXT
+        self._goodbye_text = goodbye_text or GOODBY_TEXT
 
         # ── PlayTts ────────────────────────────────────────────────────────
         self._tts = self.create_client(PlayTts, tts_service, callback_group=self._cbg)
@@ -444,7 +448,7 @@ class IntroSequenceNode(Node):
             # Greeting speech starts immediately; the wave overlaps it.
             self.get_logger().info("=== STEP 1: GREETING + WAVE ===")
             self._speak(
-                GREETING_TEXT,
+                self._greeting_text,
                 during=lambda: self._run_preset_motion(1002, 2, 0.0),
             )
 
@@ -472,7 +476,7 @@ class IntroSequenceNode(Node):
             # Goodbye speech overlaps the blow kiss; wave follows right after.
             self.get_logger().info("=== STEP 5: GOODBYE + BLOW KISS ===")
             self._speak(
-                GOODBY_TEXT,
+                self._goodbye_text,
                 during=lambda: self._run_preset_motion(1004, 2, 0.0),
             )
 
@@ -505,6 +509,10 @@ def main() -> None:
                         help="LinkCraft resource key of the dance to perform")
     parser.add_argument("--dance-duration", type=float, default=DANCE_DURATION_S,
                         help="seconds to wait while the dance plays")
+    parser.add_argument("--greeting-text", default=GREETING_TEXT,
+                        help="custom welcome greeting spoken in step 1")
+    parser.add_argument("--goodbye-text", default=GOODBY_TEXT,
+                        help="custom goodbye message spoken in step 5")
     parser.add_argument("--log-level", default=os.getenv("LOG_LEVEL", "INFO"))
     args = parser.parse_args()
 
@@ -521,6 +529,8 @@ def main() -> None:
         unmute_after=args.unmute_after,
         dance_key=args.dance_key,
         dance_duration_s=args.dance_duration,
+        greeting_text=args.greeting_text,
+        goodbye_text=args.goodbye_text,
     )
     executor = MultiThreadedExecutor()
     executor.add_node(node)

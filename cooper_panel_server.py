@@ -32,6 +32,7 @@ import os
 import subprocess
 import sys
 import threading
+import time
 from contextlib import suppress
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -211,7 +212,13 @@ class ShowRunner:
         with self._lock:
             return self._proc is not None and self._proc.poll() is None
 
-    def start(self, dance_key: str | None, unmute_after: bool) -> None:
+    def start(
+        self,
+        dance_key: str | None,
+        unmute_after: bool,
+        greeting: str | None = None,
+        goodbye: str | None = None,
+    ) -> None:
         with self._lock:
             if self._proc is not None and self._proc.poll() is None:
                 raise RuntimeError("a show is already running")
@@ -220,6 +227,10 @@ class ShowRunner:
                 cmd += ["--dance-key", dance_key]
             if unmute_after:
                 cmd += ["--unmute-after"]
+            if greeting:
+                cmd += ["--greeting-text", greeting]
+            if goodbye:
+                cmd += ["--goodbye-text", goodbye]
             LOGGER.info("Starting show: %s", " ".join(cmd))
             self._proc = subprocess.Popen(cmd)
             proc = self._proc
@@ -234,6 +245,31 @@ class ShowRunner:
             LOGGER.info("Show finished (exit code %s)", proc.returncode)
 
         threading.Thread(target=watch, name="show-watch", daemon=True).start()
+
+
+MAX_MESSAGE_LEN = 500
+
+
+def resolve_messages(body: dict) -> tuple[str | None, str | None]:
+    """Build the greeting/goodbye text from the panel's message settings.
+
+    - The AM greeting is used before 12:00 (Cooper's clock), PM after; if
+      only one is filled in, it is used all day.
+    - "{name}" in any message is replaced with the tenant/guest name
+      (falls back to "everyone").
+    - Empty fields mean the show script's built-in default text is used.
+    """
+    name = str(body.get("name") or "").strip() or "everyone"
+
+    def clean(field: str) -> str:
+        return str(body.get(field) or "").strip()[:MAX_MESSAGE_LEN]
+
+    am, pm, goodbye = clean("greeting_am"), clean("greeting_pm"), clean("goodbye")
+    greeting = (am if time.localtime().tm_hour < 12 else pm) or am or pm
+
+    greeting = greeting.replace("{name}", name) if greeting else None
+    goodbye = goodbye.replace("{name}", name) if goodbye else None
+    return greeting, goodbye
 
 
 def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str):
@@ -314,9 +350,12 @@ def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str):
                     return self._send_json({"ok": True, "listening": listen})
 
                 if self.path == "/api/show":
+                    greeting, goodbye = resolve_messages(body)
                     shows.start(
                         dance_key=str(body.get("dance_key") or "") or None,
                         unmute_after=bool(body.get("unmute_after", False)),
+                        greeting=greeting,
+                        goodbye=goodbye,
                     )
                     return self._send_json({"ok": True, "show_running": True})
 
