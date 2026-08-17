@@ -58,6 +58,22 @@ DEFAULT_SET_MUTE_SVC       = "/aimdk_5Fmsgs/srv/SetMute"
 PANEL_HTML_FILE = Path(__file__).resolve().parent / "cooper_control_panel.html"
 SHOW_SCRIPT     = Path(__file__).resolve().parent / "x2_showroom_demo.py"
 
+# Drop a photo of Cooper here (PNG) to use it as the panel's page icon.
+FAVICON_FILE    = Path(__file__).resolve().parent / "cooper_icon.png"
+FALLBACK_ICON_SVG = (
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">'
+    '<rect width="64" height="64" rx="14" fill="#eef1f4"/>'
+    '<rect x="17" y="7" width="30" height="32" rx="13" fill="#17191c"/>'
+    '<rect x="26" y="17" width="3" height="8" rx="1.5" fill="#fff"/>'
+    '<rect x="35" y="17" width="3" height="8" rx="1.5" fill="#fff"/>'
+    '<rect x="27" y="29" width="10" height="2.6" rx="1.3" fill="#fff"/>'
+    '<rect x="10" y="42" width="44" height="18" rx="9" fill="#fbfcfd" '
+    'stroke="#c6ced6" stroke-width="1.5"/>'
+    '<circle cx="32" cy="48" r="1.7" fill="#17191c"/>'
+    '<circle cx="32" cy="54" r="1.7" fill="#17191c"/>'
+    "</svg>"
+).encode()
+
 
 class CooperPanelNode(Node):
     """ROS2 side of the panel: talks to the AimDK services."""
@@ -316,6 +332,8 @@ def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str):
         def do_GET(self):
             if self.path in ("/", "/index.html"):
                 return self._serve_panel()
+            if self.path == "/favicon.png":
+                return self._serve_favicon()
             if self.path == "/api/status":
                 return self._send_json({
                     "ok": True,
@@ -363,6 +381,18 @@ def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str):
             except Exception as exc:
                 LOGGER.exception("POST %s failed", self.path)
                 return self._send_json({"ok": False, "error": str(exc)}, 502)
+
+        def _serve_favicon(self):
+            body, ctype = FALLBACK_ICON_SVG, "image/svg+xml"
+            if FAVICON_FILE.is_file():
+                with suppress(OSError):
+                    body, ctype = FAVICON_FILE.read_bytes(), "image/png"
+            self.send_response(200)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "max-age=3600")
+            self.end_headers()
+            self.wfile.write(body)
 
         def _serve_panel(self):
             try:
