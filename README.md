@@ -57,16 +57,27 @@ Features:
   "everyone"). All texts are freely editable and saved in the browser;
   blank fields fall back to the script's built-in lines.
 
-Start on the robot:
+The control API (`cooper_panel_server.py`) always runs on Cooper:
 
 ```bash
 source /opt/ros/humble/setup.bash && source ~/aimdk/install/setup.bash
 python3 cooper_panel_server.py --port 8080 --pin 2468
 ```
 
-Then browse to `http://<cooper-ip>:8080`. (You can also open
-`cooper_control_panel.html` directly from any machine and enter Cooper's
-IP in the Connection box.)
+The **webpage** can be hosted three ways, and the ⚙ Settings dropdown
+("Where is Cooper being used?") switches between them with one selection:
+
+| Profile | Page hosted by | Cooper address |
+|---|---|---|
+| Show suite — One Comcentre | Apache on `optimus` (192.168.68.51:8080) | fixed 192.168.68.54:8080 |
+| Cooper's built-in webserver | `cooper_panel_server.py` itself | automatic (the serving host) |
+| Outside event — portable | notebook Apache / opened from file | typed once, remembered |
+
+For the Apache hosts (optimus or the portable notebook), just copy
+`cooper_control_panel.html` (renamed `index.html` if you like) and
+optionally `cooper_icon.png` into the web root, e.g.
+`/var/www/html/` on Ubuntu. The page talks to Cooper's API directly from
+the browser, so Apache needs no extra modules or proxy setup.
 
 REST API (used by the page, also handy for scripting):
 

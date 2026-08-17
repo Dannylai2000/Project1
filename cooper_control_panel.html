@@ -45,7 +45,9 @@
   }
   input[type=text], input[type=password] { flex: 1; min-width: 150px; }
   input[type=number] { width: 92px; }
+  input[readonly] { opacity: .55; }
   select { flex: 1; min-width: 0; }
+  .field select, .field input { width: 100%; }
 
   button {
     background: var(--accent); color: #04202f; border: 0; border-radius: 10px;
@@ -121,10 +123,19 @@
 
   <section id="settings">
     <h2>Connection</h2>
+    <div class="field">
+      <label for="profile">Where is Cooper being used?</label>
+      <select id="profile">
+        <option value="suite">Show suite — One Comcentre</option>
+        <option value="robot">Cooper's built-in webserver</option>
+        <option value="event">Outside event — portable setup</option>
+      </select>
+    </div>
     <div class="row">
       <input type="text" id="ip" placeholder="Cooper IP address">
       <input type="number" id="port" value="8080" min="1" max="65535" title="Port">
     </div>
+    <div class="hint" id="profileHint"></div>
     <div class="row">
       <input type="password" id="pin" placeholder="Panel PIN">
       <button id="connect">Connect</button>
@@ -202,10 +213,41 @@
   }
 
   // ── connection settings (saved in the browser) ─────────────────────────
-  const DEFAULT_IP = "192.168.68.54";  // Cooper's usual address
-  $("ip").value   = localStorage.getItem("cooper_ip")   || location.hostname || DEFAULT_IP;
-  $("port").value = localStorage.getItem("cooper_port") || "8080";
-  $("pin").value  = localStorage.getItem("cooper_pin")  || "";
+  // One dropdown covers the three hosting setups; only the event profile
+  // needs a typed address, and it is remembered for next time.
+  const COOPER_SUITE_IP = "192.168.68.54";   // Cooper on the show-suite network
+  const PROFILES = {
+    suite: {
+      ip: () => COOPER_SUITE_IP, port: () => "8080", fixed: true,
+      hint: `Panel hosted on optimus (Apache) — controls Cooper at ${COOPER_SUITE_IP}.`,
+    },
+    robot: {
+      ip: () => location.hostname || COOPER_SUITE_IP,
+      port: () => location.port || "8080", fixed: true,
+      hint: "Panel hosted by Cooper's built-in webserver — address is automatic.",
+    },
+    event: {
+      ip: () => localStorage.getItem("cooper_event_ip") || COOPER_SUITE_IP,
+      port: () => localStorage.getItem("cooper_event_port") || "8080", fixed: false,
+      hint: "Portable setup — type Cooper's IP address on the event network below.",
+    },
+  };
+
+  function applyProfile(key) {
+    const p = PROFILES[key] || PROFILES.suite;
+    $("profile").value = PROFILES[key] ? key : "suite";
+    localStorage.setItem("cooper_profile", $("profile").value);
+    $("ip").value = p.ip();
+    $("port").value = p.port();
+    $("ip").readOnly = $("port").readOnly = p.fixed;
+    $("profileHint").textContent = p.hint;
+  }
+
+  $("pin").value = localStorage.getItem("cooper_pin") || "";
+  applyProfile(
+    localStorage.getItem("cooper_profile") ||
+    (location.hostname === COOPER_SUITE_IP ? "robot" : "suite")
+  );
 
   const base = () => `http://${$("ip").value.trim()}:${$("port").value.trim()}`;
 
@@ -238,9 +280,11 @@
   loadMessages();
 
   function saveSettings() {
-    localStorage.setItem("cooper_ip", $("ip").value.trim());
-    localStorage.setItem("cooper_port", $("port").value.trim());
     localStorage.setItem("cooper_pin", $("pin").value);
+    if ($("profile").value === "event") {
+      localStorage.setItem("cooper_event_ip", $("ip").value.trim());
+      localStorage.setItem("cooper_event_port", $("port").value.trim());
+    }
   }
 
   async function api(path, opts = {}) {
@@ -386,6 +430,7 @@
 
   $("gear").addEventListener("click", () => $("settings").classList.toggle("open"));
   $("resetMsgs").addEventListener("click", resetMessages);
+  $("profile").addEventListener("change", e => { applyProfile(e.target.value); connect(); });
   $("connect").addEventListener("click", connect);
   $("refresh").addEventListener("click", refreshDances);
   ["ip", "port", "pin"].forEach(id =>
