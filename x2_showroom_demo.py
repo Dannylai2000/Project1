@@ -21,12 +21,14 @@ Run on the robot:
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 import threading
 import time
 import uuid
 from contextlib import suppress
+from pathlib import Path
 from typing import Callable, Optional
 
 import rclpy
@@ -89,8 +91,14 @@ class IntroSequenceNode(Node):
         greeting_text: str = GREETING_TEXT,
         intro_text: str = INTRO_TEXT,
         goodbye_text: str = GOODBY_TEXT,
+        timing_file: str = "",
     ) -> None:
         super().__init__("x2_intro_sequence")
+
+        # Milestone timestamps for the panel's performance diagnostics.
+        self._timing_file = timing_file
+        self._timing_events: dict = {}
+        self._mark("script_start")
 
         self._shutdown_event = threading.Event()
         self._cbg = MutuallyExclusiveCallbackGroup()
@@ -161,6 +169,16 @@ class IntroSequenceNode(Node):
         now = self.get_clock().now()
         req.header.header.stamp.sec     = now.nanoseconds // 1_000_000_000
         req.header.header.stamp.nanosec = now.nanoseconds % 1_000_000_000
+
+    def _mark(self, event: str) -> None:
+        """Record a wall-clock milestone for the panel's diagnostics."""
+        if not self._timing_file:
+            return
+        self._timing_events[event] = time.time()
+        try:
+            Path(self._timing_file).write_text(json.dumps(self._timing_events))
+        except OSError:
+            pass
 
     # ── Microphone mute (listening on/off) ─────────────────────────────────
 
@@ -235,14 +253,22 @@ class IntroSequenceNode(Node):
             LOGGER.info("PlayTts accepted (~%.2fs)", duration_s)
         return duration_s
 
-    def _speak(self, text: str, during: Optional[Callable[[], None]] = None) -> None:
+    def _speak(
+        self,
+        text: str,
+        during: Optional[Callable[[], None]] = None,
+        mark: Optional[str] = None,
+    ) -> None:
         """Speak `text`; optionally run `during()` while the speech plays.
 
         Motions launched via `during` overlap the speech instead of adding
-        their own dead time to the sequence.
+        their own dead time to the sequence. `mark` records a diagnostics
+        milestone the moment the TTS request is accepted.
         """
         started = time.monotonic()
         duration_s = self._start_speech(text)
+        if mark and duration_s > 0:
+            self._mark(mark)
 
         if during is not None:
             during()
@@ -341,6 +367,7 @@ class IntroSequenceNode(Node):
             LOGGER.error("Dance rejected (code=%s): %s", code, msg)
             return False
 
+        self._mark("dance_started")
         LOGGER.info("Dance started; waiting %.0fs", wait_duration_s)
         time.sleep(wait_duration_s)
         return True
@@ -452,6 +479,7 @@ class IntroSequenceNode(Node):
             self._speak(
                 self._greeting_text,
                 during=lambda: self._run_preset_motion(1002, 2, 0.0),
+                mark="first_speech",
             )
 
             self.get_logger().info("=== STEP 2: SELF-INTRODUCTION ===")
@@ -489,6 +517,7 @@ class IntroSequenceNode(Node):
         except Exception:
             LOGGER.exception("Sequence failed unexpectedly")
         finally:
+            self._mark("show_complete")
             if self._mute_enabled and self._unmute_after:
                 self.get_logger().info("Restoring listening (unmute)")
                 self._set_listening(True)
@@ -517,6 +546,9 @@ def main() -> None:
                         help="custom self-introduction spoken in step 2")
     parser.add_argument("--goodbye-text", default=GOODBY_TEXT,
                         help="custom goodbye message spoken in step 5")
+    parser.add_argument("--timing-file", default="",
+                        help="write show milestone timestamps (JSON) here "
+                             "for the panel's performance diagnostics")
     parser.add_argument("--log-level", default=os.getenv("LOG_LEVEL", "INFO"))
     args = parser.parse_args()
 
@@ -536,6 +568,7 @@ def main() -> None:
         greeting_text=args.greeting_text,
         intro_text=args.intro_text,
         goodbye_text=args.goodbye_text,
+        timing_file=args.timing_file,
     )
     executor = MultiThreadedExecutor()
     executor.add_node(node)

@@ -80,6 +80,27 @@
   #diagLog .mid  { color: var(--warn); }
   #diagLog .slow { color: var(--bad); }
 
+  /* Timing flow diagram */
+  #diagFlow {
+    background: #0d1116; border: 1px solid var(--edge); border-radius: 8px;
+    padding: 14px 12px; margin-bottom: 10px;
+  }
+  .flowRow { display: flex; align-items: center; justify-content: center;
+             gap: 8px; flex-wrap: wrap; }
+  .fnode {
+    background: var(--panel); border: 1px solid var(--edge); border-radius: 10px;
+    padding: 8px 12px; text-align: center; font-size: 13px; min-width: 86px;
+  }
+  .fnode small { color: var(--accent); font-weight: 650; }
+  .farrow { text-align: center; color: var(--dim); font-size: 12px; min-width: 64px; }
+  .farrow span { color: var(--accent); font-weight: 650; font-size: 13px; }
+  .farrow div { line-height: .8; font-size: 16px; }
+  .flowRow.timeline {
+    margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--edge);
+    color: var(--dim); font-size: 13px; justify-content: flex-start;
+  }
+  .flowRow.timeline b { color: var(--accent); font-weight: 650; }
+
   button {
     background: var(--accent); color: #04202f; border: 0; border-radius: 10px;
     padding: 12px 18px; font-size: 16px; font-weight: 650; cursor: pointer;
@@ -256,10 +277,29 @@
 
   <section id="diagCard" style="display:none">
     <h2>Performance diagnostics</h2>
+
+    <div id="diagFlow">
+      <div class="flowRow">
+        <div class="fnode">📱<div>You tap</div></div>
+        <div class="farrow"><span id="fNet">—</span><div>→</div><small>network</small></div>
+        <div class="fnode">🌐<div>Web server</div><small id="fSrv">—</small></div>
+        <div class="farrow"><span id="fAck">—</span><div>→</div><small>robot ack</small></div>
+        <div class="fnode">🤖<div>Cooper acts</div></div>
+      </div>
+      <div class="flowRow timeline" id="showFlow">
+        <span>Full show (from click):</span>
+        <span>launch <b id="fLaunch">—</b></span> →
+        <span>first speech <b id="fSpeech">—</b></span> →
+        <span>dance <b id="fDance">—</b></span> →
+        <span>complete <b id="fDone">—</b></span>
+      </div>
+    </div>
+
     <div id="diagLog"><span class="empty">No measurements yet — press any control button.</span></div>
-    <div class="hint">total = click → Cooper's acknowledgment · network = browser ↔ Cooper ·
-      robot = Cooper accepting the command internally. "Run full show" measures the
-      launch only; speech and motion follow on the robot.</div>
+    <div class="hint">Top row shows the last button press: network = browser ↔ Cooper,
+      web server = processing on Cooper, robot ack = Cooper's controller accepting the
+      command. The show timeline updates live from the robot as the show reaches each
+      milestone — "first speech" is the moment the greeting audio is accepted.</div>
     <div class="row" style="margin-top:10px">
       <button class="secondary" id="diagClear">Clear</button>
     </div>
@@ -382,11 +422,21 @@
     $("diagCard").style.display = on ? "block" : "none";
   }
 
+  const fmtMs = ms => (ms < 1000 ? `${Math.round(ms)} ms` : `${(ms / 1000).toFixed(1)} s`);
+
   function logDiag(action, data) {
     if (!diagOn) return;
     const total = Math.round(data._client_ms || 0);
     const t = data.timing || {};
     const server = t.server_total_ms;
+
+    // Fill the flow diagram with this action's leg times.
+    if (server != null) {
+      $("fNet").textContent = fmtMs(Math.max(0, total - server));
+      $("fSrv").textContent = fmtMs(server);
+    }
+    $("fAck").textContent = t.robot_ack_ms != null ? fmtMs(t.robot_ack_ms) : "—";
+    if (t.launch_ms != null) $("fLaunch").textContent = fmtMs(total);
     const parts = [`total ${total} ms`];
     if (server != null) {
       parts.push(`network ${Math.max(0, Math.round(total - server))} ms`);
@@ -405,6 +455,39 @@
     });
     if (diagEntries.length > 10) diagEntries.pop();
     renderDiag();
+  }
+
+  // Show milestones (from the show script's timing file, via /api/status).
+  let shownShow = { at: null, seen: new Set() };
+  const SHOW_MILESTONES = [
+    ["first_speech_ms", "First speech", "fSpeech"],
+    ["dance_started_ms", "Dance started", "fDance"],
+    ["show_complete_ms", "Show complete", "fDone"],
+  ];
+
+  function trackShowTiming(st) {
+    if (!diagOn || !st) return;
+    if (shownShow.at !== st.requested_at) {
+      shownShow = { at: st.requested_at, seen: new Set() };
+      ["fSpeech", "fDance", "fDone"].forEach(id => { $(id).textContent = "—"; });
+    }
+    for (const [key, label, elId] of SHOW_MILESTONES) {
+      if (st[key] == null) continue;
+      $(elId).textContent = fmtMs(st[key]);
+      if (!shownShow.seen.has(key)) {
+        shownShow.seen.add(key);
+        diagEntries.unshift({
+          time: new Date().toLocaleTimeString(),
+          action: "Show",
+          text: `${label} after ${fmtMs(st[key])} (from click)`,
+          cls: key === "first_speech_ms"
+            ? (st[key] < 2500 ? "fast" : st[key] < 5000 ? "mid" : "slow")
+            : "",
+        });
+        if (diagEntries.length > 10) diagEntries.pop();
+        renderDiag();
+      }
+    }
   }
 
   function renderDiag() {
@@ -443,6 +526,9 @@
     $("listenHint").textContent = showRunning
       ? "The show controls the microphone while it is running."
       : "Off = Cooper ignores surrounding conversation.";
+
+    // Show milestones reported live by the running show script.
+    trackShowTiming(s.show_timing);
 
     // New-song alert from Cooper's background library check.
     const n = s.new_songs || 0;

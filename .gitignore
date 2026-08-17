@@ -2,3 +2,4 @@ __pycache__/
 *.pyc
 cooper_panel_config.json
 cooper_icon.png
+cooper_show_timing.json

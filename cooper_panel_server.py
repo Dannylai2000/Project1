@@ -64,6 +64,10 @@ FAVICON_FILE    = Path(__file__).resolve().parent / "cooper_icon.png"
 # Shared panel settings (currently the dance shortlist), one file for all
 # devices, stored next to the server on Cooper.
 CONFIG_FILE     = Path(__file__).resolve().parent / "cooper_panel_config.json"
+
+# Milestones written by the running show script (first speech, dance start),
+# read back for the panel's performance diagnostics.
+TIMING_FILE     = Path(__file__).resolve().parent / "cooper_show_timing.json"
 FALLBACK_ICON_SVG = (
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">'
     '<rect width="64" height="64" rx="14" fill="#eef1f4"/>'
@@ -243,6 +247,7 @@ class ShowRunner:
         self._node = node
         self._proc: subprocess.Popen | None = None
         self._lock = threading.Lock()
+        self._last_requested: float | None = None
 
     def running(self) -> bool:
         with self._lock:
@@ -271,6 +276,10 @@ class ShowRunner:
                 cmd += ["--intro-text", intro]
             if goodbye:
                 cmd += ["--goodbye-text", goodbye]
+            cmd += ["--timing-file", str(TIMING_FILE)]
+            with suppress(OSError):
+                TIMING_FILE.unlink()
+            self._last_requested = time.time()
             LOGGER.info("Starting show: %s", " ".join(cmd))
             self._proc = subprocess.Popen(cmd)
             proc = self._proc
@@ -286,6 +295,23 @@ class ShowRunner:
 
         threading.Thread(target=watch, name="show-watch", daemon=True).start()
         return {"launch_ms": round((time.perf_counter() - t0) * 1000, 1)}
+
+    def show_timing(self) -> dict | None:
+        """Milestones of the latest show, in ms from the panel's click."""
+        with self._lock:
+            requested = self._last_requested
+        if requested is None:
+            return None
+        try:
+            events = json.loads(TIMING_FILE.read_text())
+        except (OSError, json.JSONDecodeError):
+            return None
+        out: dict = {"requested_at": requested}
+        for event in ("script_start", "first_speech", "dance_started", "show_complete"):
+            t = events.get(event)
+            if isinstance(t, (int, float)) and t >= requested:
+                out[f"{event}_ms"] = round((t - requested) * 1000, 1)
+        return out if len(out) > 1 else None
 
 
 class PanelConfig:
@@ -497,6 +523,7 @@ def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str,
                     "pin_required": bool(pin),
                     "library_size": library_size,
                     "new_songs": new_songs,
+                    "show_timing": shows.show_timing(),
                 })
             if self.path == "/api/dances":
                 try:

@@ -67,8 +67,38 @@ Features:
   control action logs a timing breakdown in a diagnostics card: total
   (click → Cooper's acknowledgment), network (browser ↔ Cooper), server
   processing, and robot acknowledgment (the ROS service round-trip),
-  color-coded green/amber/red. The connection status also shows a live
+  color-coded green/amber/red. A flow diagram in the card shows the last
+  measurement on each leg, and for the full show a live timeline tracks
+  **launch → first speech → dance → complete** (in ms from the click),
+  reported by the show script itself through a timing file
+  (`cooper_show_timing.json`). The connection status also shows a live
   ping. Off by default so daily users never see it.
+
+  Where the measured legs live:
+
+  ```mermaid
+  sequenceDiagram
+      participant B as Browser (panel page)
+      participant W as Web server on Cooper<br>(cooper_panel_server.py)
+      participant R as Robot services (AimDK ROS2)
+      participant S as Show script<br>(x2_showroom_demo.py)
+
+      B->>W: POST /api/listening | /api/dance | /api/show
+      Note over B,W: network (browser round-trip minus server time)
+      Note over W: server processing (service wait + lookup)
+      W->>R: ROS service call (SetMute / ExecuteActionResource)
+      Note over W,R: robot ack — Cooper's controller accepts the command
+      R-->>W: acknowledgment
+      W-->>B: JSON result + timing breakdown
+
+      W->>S: /api/show only — launch show subprocess (launch ms)
+      S->>R: PlayTts greeting
+      Note over S,R: first speech — greeting audio accepted
+      S->>R: ExecuteActionResource dance
+      Note over S,R: dance started
+      S-->>W: milestones via cooper_show_timing.json
+      W-->>B: /api/status → show_timing (ms from click)
+  ```
 - **New-song alerts** — Cooper's server re-checks the LinkCraft library in
   the background (every 5 min, `--library-poll` to change) and compares it
   with a shared "seen" list. When the LinkCraft cloud pushes new songs,
