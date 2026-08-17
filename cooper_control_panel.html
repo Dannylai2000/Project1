@@ -202,7 +202,8 @@
   }
 
   // ── connection settings (saved in the browser) ─────────────────────────
-  $("ip").value   = localStorage.getItem("cooper_ip")   || location.hostname || "";
+  const DEFAULT_IP = "192.168.68.54";  // Cooper's usual address
+  $("ip").value   = localStorage.getItem("cooper_ip")   || location.hostname || DEFAULT_IP;
   $("port").value = localStorage.getItem("cooper_port") || "8080";
   $("pin").value  = localStorage.getItem("cooper_pin")  || "";
 
@@ -390,7 +391,7 @@
   ["ip", "port", "pin"].forEach(id =>
     $(id).addEventListener("keydown", e => { if (e.key === "Enter") connect(); }));
 
-  if ($("ip").value) connect(); else $("settings").classList.add("open");
+  connect();
 
   // Page icon: served by Cooper at /favicon.png (real PNG if cooper_icon.png
   // is installed next to the server). When the page is opened directly from
