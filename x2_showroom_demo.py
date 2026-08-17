@@ -84,6 +84,8 @@ class IntroSequenceNode(Node):
         mute_service: str,
         mute_enabled: bool,
         unmute_after: bool,
+        dance_key: str = DANCE_RESOURCE_KEY,
+        dance_duration_s: float = DANCE_DURATION_S,
     ) -> None:
         super().__init__("x2_intro_sequence")
 
@@ -91,6 +93,8 @@ class IntroSequenceNode(Node):
         self._cbg = MutuallyExclusiveCallbackGroup()
         self._mute_enabled = mute_enabled
         self._unmute_after = unmute_after
+        self._dance_key = dance_key
+        self._dance_duration_s = dance_duration_s
 
         # ── PlayTts ────────────────────────────────────────────────────────
         self._tts = self.create_client(PlayTts, tts_service, callback_group=self._cbg)
@@ -256,11 +260,11 @@ class IntroSequenceNode(Node):
                 LOGGER.warning("Prefetch of LinkCraft resources timed out")
                 return
             for r in resp.robot_resources:
-                if r.resource_key == DANCE_RESOURCE_KEY:
+                if r.resource_key == self._dance_key:
                     self._dance_resource = r
                     LOGGER.info("Dance resource prefetched: %s", r.resource_key)
                     return
-            LOGGER.warning("Resource key %r not found during prefetch", DANCE_RESOURCE_KEY)
+            LOGGER.warning("Resource key %r not found during prefetch", self._dance_key)
         except Exception:
             LOGGER.exception("Dance resource prefetch failed")
         finally:
@@ -448,7 +452,7 @@ class IntroSequenceNode(Node):
             self._speak(INTRO_TEXT)
 
             self.get_logger().info("=== STEP 3: DANCE ===")
-            self._run_linkcraft_action(DANCE_RESOURCE_KEY, DANCE_DURATION_S)
+            self._run_linkcraft_action(self._dance_key, self._dance_duration_s)
 
             self.get_logger().info("=== STEP 3a: Bow ===")
             self._run_preset_motion(3001, 11, FINAL_MOTION_WAIT_S)
@@ -497,6 +501,10 @@ def main() -> None:
     parser.add_argument("--unmute-after", action="store_true",
                         help="restore listening when the sequence finishes "
                              "(default: stay muted)")
+    parser.add_argument("--dance-key", default=DANCE_RESOURCE_KEY,
+                        help="LinkCraft resource key of the dance to perform")
+    parser.add_argument("--dance-duration", type=float, default=DANCE_DURATION_S,
+                        help="seconds to wait while the dance plays")
     parser.add_argument("--log-level", default=os.getenv("LOG_LEVEL", "INFO"))
     args = parser.parse_args()
 
@@ -511,6 +519,8 @@ def main() -> None:
         mute_service=args.mute_service,
         mute_enabled=not args.no_mute,
         unmute_after=args.unmute_after,
+        dance_key=args.dance_key,
+        dance_duration_s=args.dance_duration,
     )
     executor = MultiThreadedExecutor()
     executor.add_node(node)

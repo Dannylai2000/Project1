@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cooper Control Panel</title>
+<style>
+  :root {
+    --bg: #101418; --panel: #1a2027; --edge: #2c3540;
+    --text: #e8edf2; --dim: #8b98a5;
+    --accent: #35b6ff; --ok: #3ecf8e; --warn: #ffb454; --bad: #ff6b6b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 24px; background: var(--bg); color: var(--text);
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+    display: flex; justify-content: center;
+  }
+  main { width: 100%; max-width: 560px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  h1 small { color: var(--dim); font-weight: 400; font-size: 14px; }
+  section {
+    background: var(--panel); border: 1px solid var(--edge);
+    border-radius: 12px; padding: 16px 18px; margin-top: 16px;
+  }
+  section h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em;
+               color: var(--dim); margin: 0 0 12px; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .row + .row { margin-top: 10px; }
+  input[type=text], input[type=number], select {
+    background: #0d1116; color: var(--text); border: 1px solid var(--edge);
+    border-radius: 8px; padding: 9px 12px; font-size: 15px;
+  }
+  input[type=text] { flex: 1; min-width: 160px; }
+  select { flex: 1; min-width: 200px; max-width: 100%; }
+  input[type=number] { width: 90px; }
+  button {
+    background: var(--accent); color: #04202f; border: 0; border-radius: 8px;
+    padding: 9px 16px; font-size: 15px; font-weight: 600; cursor: pointer;
+  }
+  button.secondary { background: #2c3540; color: var(--text); }
+  button.danger { background: var(--bad); color: #2b0808; }
+  button.good { background: var(--ok); color: #06281a; }
+  button:disabled { opacity: .45; cursor: default; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--dim);
+         display: inline-block; margin-right: 6px; }
+  .dot.on { background: var(--ok); } .dot.off { background: var(--bad); }
+  .state { color: var(--dim); font-size: 14px; }
+  label.chk { display: flex; gap: 6px; align-items: center; color: var(--dim);
+              font-size: 14px; user-select: none; }
+  #log {
+    margin-top: 16px; background: #0d1116; border: 1px solid var(--edge);
+    border-radius: 12px; padding: 12px 14px; font: 13px/1.6 ui-monospace, monospace;
+    color: var(--dim); max-height: 180px; overflow-y: auto; white-space: pre-wrap;
+  }
+  #log .err { color: var(--bad); } #log .ok { color: var(--ok); }
+</style>
+</head>
+<body>
+<main>
+  <h1>🤖 Cooper Control Panel <small>AgiBot X2 Ultra — One Comcentre</small></h1>
+
+  <section>
+    <h2>Connection</h2>
+    <div class="row">
+      <input type="text" id="ip" placeholder="Cooper IP address (e.g. 192.168.1.50)">
+      <input type="number" id="port" value="8080" min="1" max="65535" title="Port">
+      <button id="connect">Connect</button>
+    </div>
+    <div class="row state"><span class="dot" id="connDot"></span><span id="connState">Not connected</span></div>
+  </section>
+
+  <section>
+    <h2>Listening mode</h2>
+    <div class="row">
+      <button class="good" id="listenOn">Listening ON</button>
+      <button class="danger" id="listenOff">Listening OFF (mute)</button>
+      <span class="state"><span class="dot" id="listenDot"></span><span id="listenState">unknown</span></span>
+    </div>
+  </section>
+
+  <section>
+    <h2>Dance</h2>
+    <div class="row">
+      <select id="dances"><option value="">— connect to load dances —</option></select>
+      <button class="secondary" id="refresh">↻</button>
+    </div>
+    <div class="row">
+      <button id="playDance">Play dance</button>
+      <button class="secondary" id="runShow">Run full show</button>
+      <label class="chk"><input type="checkbox" id="unmuteAfter"> unmute after show</label>
+    </div>
+  </section>
+
+  <div id="log"></div>
+</main>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const logEl = $("log");
+
+  function log(msg, cls) {
+    const line = document.createElement("div");
+    if (cls) line.className = cls;
+    line.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+    logEl.prepend(line);
+  }
+
+  // ── Cooper address: default to the host serving this page, editable, saved ──
+  const savedIp = localStorage.getItem("cooper_ip");
+  const savedPort = localStorage.getItem("cooper_port");
+  $("ip").value = savedIp || (location.hostname && location.hostname !== "" ? location.hostname : "");
+  if (savedPort) $("port").value = savedPort;
+
+  const base = () => `http://${$("ip").value.trim()}:${$("port").value.trim()}`;
+
+  async function api(path, opts = {}) {
+    const res = await fetch(base() + path, {
+      headers: { "Content-Type": "application/json" },
+      ...opts,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.ok === false) {
+      throw new Error(data.error || `HTTP ${res.status}`);
+    }
+    return data;
+  }
+
+  function setConnected(ok, detail) {
+    $("connDot").className = "dot " + (ok ? "on" : "off");
+    $("connState").textContent = ok ? `Connected to ${base()}` : (detail || "Not connected");
+  }
+
+  function setListening(state) {
+    const dot = $("listenDot"), label = $("listenState");
+    if (state === true)  { dot.className = "dot on";  label.textContent = "listening"; }
+    else if (state === false) { dot.className = "dot off"; label.textContent = "muted"; }
+    else { dot.className = "dot"; label.textContent = "unknown"; }
+  }
+
+  async function connect() {
+    const ip = $("ip").value.trim();
+    if (!ip) { log("Enter Cooper's IP address first.", "err"); return; }
+    localStorage.setItem("cooper_ip", ip);
+    localStorage.setItem("cooper_port", $("port").value.trim());
+    try {
+      const status = await api("/api/status");
+      setConnected(true);
+      setListening(status.listening);
+      log(`Connected. Show running: ${status.show_running ? "yes" : "no"}`, "ok");
+      await refreshDances();
+    } catch (e) {
+      setConnected(false, "Connection failed");
+      log(`Connect failed: ${e.message}`, "err");
+    }
+  }
+
+  async function refreshDances() {
+    try {
+      const { dances } = await api("/api/dances");
+      const sel = $("dances");
+      sel.innerHTML = "";
+      if (!dances.length) {
+        sel.innerHTML = '<option value="">— no LinkCraft dances found —</option>';
+        log("No LinkCraft dances found on Cooper.", "err");
+        return;
+      }
+      for (const d of dances) {
+        const opt = document.createElement("option");
+        opt.value = d.key;
+        opt.textContent = d.name !== d.key ? `${d.name} (${d.key.slice(-8)})` : d.key;
+        sel.appendChild(opt);
+      }
+      log(`Loaded ${dances.length} dance(s) from the LinkCraft library.`, "ok");
+    } catch (e) {
+      log(`Loading dances failed: ${e.message}`, "err");
+    }
+  }
+
+  async function playDance() {
+    const key = $("dances").value;
+    if (!key) { log("Pick a dance first.", "err"); return; }
+    $("playDance").disabled = true;
+    try {
+      await api("/api/dance", { method: "POST", body: JSON.stringify({ key }) });
+      log(`Dance started: ${$("dances").selectedOptions[0].textContent}`, "ok");
+    } catch (e) {
+      log(`Dance failed: ${e.message}`, "err");
+    } finally {
+      $("playDance").disabled = false;
+    }
+  }
+
+  async function runShow() {
+    $("runShow").disabled = true;
+    try {
+      await api("/api/show", {
+        method: "POST",
+        body: JSON.stringify({
+          dance_key: $("dances").value || null,
+          unmute_after: $("unmuteAfter").checked,
+        }),
+      });
+      log("Full show started.", "ok");
+    } catch (e) {
+      log(`Show failed: ${e.message}`, "err");
+    } finally {
+      setTimeout(() => { $("runShow").disabled = false; }, 3000);
+    }
+  }
+
+  async function listening(listen) {
+    try {
+      await api("/api/listening", { method: "POST", body: JSON.stringify({ listen }) });
+      setListening(listen);
+      log(listen ? "Listening ENABLED — Cooper hears the audience."
+                 : "Listening DISABLED — microphones muted.", "ok");
+    } catch (e) {
+      log(`Listening change failed: ${e.message}`, "err");
+    }
+  }
+
+  $("connect").addEventListener("click", connect);
+  $("refresh").addEventListener("click", refreshDances);
+  $("playDance").addEventListener("click", playDance);
+  $("runShow").addEventListener("click", runShow);
+  $("listenOn").addEventListener("click", () => listening(true));
+  $("listenOff").addEventListener("click", () => listening(false));
+  $("ip").addEventListener("keydown", e => { if (e.key === "Enter") connect(); });
+
+  // Auto-connect when the page is served by Cooper itself.
+  if ($("ip").value) connect();
+})();
+</script>
+</body>
+</html>

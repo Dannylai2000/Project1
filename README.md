@@ -27,6 +27,50 @@ python3 x2_showroom_demo.py --unmute-after  # restore listening afterwards
 python3 x2_showroom_demo.py --no-mute       # don't touch the mic
 ```
 
+## Cooper Control Panel (`cooper_panel_server.py` + `cooper_control_panel.html`)
+
+Browser control panel for Cooper. The server runs **on the robot** and
+bridges HTTP to the AimDK ROS2 services; the webpage works from any phone,
+tablet, or laptop on the same network.
+
+Features:
+
+- **Dance picker** — lists every LinkCraft resource live from Cooper's
+  library, play any of them on demand, or run the **full show** with the
+  selected dance.
+- **Listening mode switch** — Listening ON / OFF buttons (mic mute via
+  `SetMute`), with the current state shown in the panel.
+- **Cooper IP address field** — defaults to the host serving the page and
+  is saved in the browser (localStorage), so if Cooper's IP changes just
+  type the new one and press Connect.
+
+Start on the robot:
+
+```bash
+source /opt/ros/humble/setup.bash && source ~/aimdk/install/setup.bash
+python3 cooper_panel_server.py --port 8080
+```
+
+Then browse to `http://<cooper-ip>:8080`. (You can also open
+`cooper_control_panel.html` directly from any machine and enter Cooper's
+IP in the Connection box.)
+
+REST API (used by the page, also handy for scripting):
+
+| Endpoint | Method | Body | Purpose |
+|---|---|---|---|
+| `/api/status` | GET | — | server + listening state |
+| `/api/dances` | GET | — | LinkCraft dance list |
+| `/api/dance` | POST | `{"key": "..."}` | play one dance |
+| `/api/listening` | POST | `{"listen": true\|false}` | mic on/off |
+| `/api/show` | POST | `{"dance_key": "...", "unmute_after": false}` | run the full show |
+
+The show script also accepts the dance directly:
+
+```bash
+python3 x2_showroom_demo.py --dance-key linkcraft_resource_onnx_... --dance-duration 30
+```
+
 ## AgiBot X2 — Listening Toggle (simulated)
 
 The AgiBot X2's microphones stay open by default so it can respond to the
