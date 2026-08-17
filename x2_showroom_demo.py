@@ -87,6 +87,7 @@ class IntroSequenceNode(Node):
         dance_key: str = DANCE_RESOURCE_KEY,
         dance_duration_s: float = DANCE_DURATION_S,
         greeting_text: str = GREETING_TEXT,
+        intro_text: str = INTRO_TEXT,
         goodbye_text: str = GOODBY_TEXT,
     ) -> None:
         super().__init__("x2_intro_sequence")
@@ -98,6 +99,7 @@ class IntroSequenceNode(Node):
         self._dance_key = dance_key
         self._dance_duration_s = dance_duration_s
         self._greeting_text = greeting_text or GREETING_TEXT
+        self._intro_text = intro_text or INTRO_TEXT
         self._goodbye_text = goodbye_text or GOODBY_TEXT
 
         # ── PlayTts ────────────────────────────────────────────────────────
@@ -453,7 +455,7 @@ class IntroSequenceNode(Node):
             )
 
             self.get_logger().info("=== STEP 2: SELF-INTRODUCTION ===")
-            self._speak(INTRO_TEXT)
+            self._speak(self._intro_text)
 
             self.get_logger().info("=== STEP 3: DANCE ===")
             self._run_linkcraft_action(self._dance_key, self._dance_duration_s)
@@ -511,6 +513,8 @@ def main() -> None:
                         help="seconds to wait while the dance plays")
     parser.add_argument("--greeting-text", default=GREETING_TEXT,
                         help="custom welcome greeting spoken in step 1")
+    parser.add_argument("--intro-text", default=INTRO_TEXT,
+                        help="custom self-introduction spoken in step 2")
     parser.add_argument("--goodbye-text", default=GOODBY_TEXT,
                         help="custom goodbye message spoken in step 5")
     parser.add_argument("--log-level", default=os.getenv("LOG_LEVEL", "INFO"))
@@ -530,6 +534,7 @@ def main() -> None:
         dance_key=args.dance_key,
         dance_duration_s=args.dance_duration,
         greeting_text=args.greeting_text,
+        intro_text=args.intro_text,
         goodbye_text=args.goodbye_text,
     )
     executor = MultiThreadedExecutor()

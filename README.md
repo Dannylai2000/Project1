@@ -51,8 +51,9 @@ Features:
   The server also mirrors the show's mic behaviour, so the listening
   switch stays truthful when the show mutes/unmutes the robot.
 - **Personalized messages** — the "Personalize messages" card holds a
-  tenant/guest name, separate morning and afternoon welcome messages, and
-  a goodbye message. Cooper picks AM vs PM by its own clock at show time,
+  tenant/guest name, separate morning and afternoon welcome messages, the
+  self-introduction spoken before the dance, and a goodbye message.
+  Cooper picks AM vs PM by its own clock at show time,
   and `{name}` in any message is replaced with the entered name (blank =
   "everyone"). All texts are freely editable and saved in the browser;
   blank fields fall back to the script's built-in lines.

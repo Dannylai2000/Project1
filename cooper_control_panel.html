@@ -218,6 +218,10 @@
         <textarea id="greetPM"></textarea>
       </div>
       <div class="field">
+        <label for="introMsg">Introduction (before the dance)</label>
+        <textarea id="introMsg"></textarea>
+      </div>
+      <div class="field">
         <label for="goodbyeMsg">Goodbye</label>
         <textarea id="goodbyeMsg"></textarea>
       </div>
@@ -288,9 +292,13 @@
   const DEFAULT_MSGS = {
     greetAM: "Good morning {name}! Welcome to One Comcentre. It is wonderful to see you today.",
     greetPM: "Good afternoon {name}! Welcome to One Comcentre. It is wonderful to see you today.",
+    introMsg: "My name is Cooper. I am the One Comcentre Ambassador, an AI-enabled humanoid robot. " +
+      "I may still be in training, but I'm ready for the future. " +
+      "Before I begin, please give me at least 2 meters distance. " +
+      "Here is my best move. I hope you enjoy the show!",
     goodbyeMsg: "Thank you for visiting. See you in One Comcentre for the future. Bye!",
   };
-  const MSG_FIELDS = ["guestName", "greetAM", "greetPM", "goodbyeMsg"];
+  const MSG_FIELDS = ["guestName", "greetAM", "greetPM", "introMsg", "goodbyeMsg"];
 
   function loadMessages() {
     for (const id of MSG_FIELDS) {
@@ -554,6 +562,7 @@
           name: $("guestName").value.trim(),
           greeting_am: $("greetAM").value.trim(),
           greeting_pm: $("greetPM").value.trim(),
+          intro: $("introMsg").value.trim(),
           goodbye: $("goodbyeMsg").value.trim(),
         }),
       });

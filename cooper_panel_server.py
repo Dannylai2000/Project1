@@ -237,6 +237,7 @@ class ShowRunner:
         dance_key: str | None,
         unmute_after: bool,
         greeting: str | None = None,
+        intro: str | None = None,
         goodbye: str | None = None,
     ) -> None:
         with self._lock:
@@ -249,6 +250,8 @@ class ShowRunner:
                 cmd += ["--unmute-after"]
             if greeting:
                 cmd += ["--greeting-text", greeting]
+            if intro:
+                cmd += ["--intro-text", intro]
             if goodbye:
                 cmd += ["--goodbye-text", goodbye]
             LOGGER.info("Starting show: %s", " ".join(cmd))
@@ -398,8 +401,8 @@ class LibraryWatcher:
 MAX_MESSAGE_LEN = 500
 
 
-def resolve_messages(body: dict) -> tuple[str | None, str | None]:
-    """Build the greeting/goodbye text from the panel's message settings.
+def resolve_messages(body: dict) -> tuple[str | None, str | None, str | None]:
+    """Build the greeting/intro/goodbye text from the panel's message settings.
 
     - The AM greeting is used before 12:00 (Cooper's clock), PM after; if
       only one is filled in, it is used all day.
@@ -412,12 +415,12 @@ def resolve_messages(body: dict) -> tuple[str | None, str | None]:
     def clean(field: str) -> str:
         return str(body.get(field) or "").strip()[:MAX_MESSAGE_LEN]
 
-    am, pm, goodbye = clean("greeting_am"), clean("greeting_pm"), clean("goodbye")
+    am, pm = clean("greeting_am"), clean("greeting_pm")
+    intro, goodbye = clean("intro"), clean("goodbye")
     greeting = (am if time.localtime().tm_hour < 12 else pm) or am or pm
 
-    greeting = greeting.replace("{name}", name) if greeting else None
-    goodbye = goodbye.replace("{name}", name) if goodbye else None
-    return greeting, goodbye
+    sub = lambda text: text.replace("{name}", name) if text else None
+    return sub(greeting), sub(intro), sub(goodbye)
 
 
 def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str,
@@ -513,11 +516,12 @@ def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str,
                     return self._send_json({"ok": True, "seen": library.mark_all_seen()})
 
                 if self.path == "/api/show":
-                    greeting, goodbye = resolve_messages(body)
+                    greeting, intro, goodbye = resolve_messages(body)
                     shows.start(
                         dance_key=str(body.get("dance_key") or "") or None,
                         unmute_after=bool(body.get("unmute_after", False)),
                         greeting=greeting,
+                        intro=intro,
                         goodbye=goodbye,
                     )
                     return self._send_json({"ok": True, "show_running": True})
