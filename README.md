@@ -1,4 +1,4 @@
-# Project1
+# Project Cooper
 Test
 
 ## AgiBot X2 — Showroom Demo (`x2_showroom_demo.py`)
