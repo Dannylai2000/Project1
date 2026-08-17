@@ -25,13 +25,13 @@ cooper_control_panel.html anywhere and type Cooper's IP into the panel.
 from __future__ import annotations
 
 import argparse
+import hmac
 import json
 import logging
 import os
 import subprocess
 import sys
 import threading
-import uuid
 from contextlib import suppress
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -195,9 +195,15 @@ class CooperPanelNode(Node):
 
 
 class ShowRunner:
-    """Launches the full showroom sequence as a subprocess (one at a time)."""
+    """Launches the full showroom sequence as a subprocess (one at a time).
 
-    def __init__(self) -> None:
+    Mirrors the show's microphone behaviour into node.listening_state so the
+    panel status stays truthful: the show mutes at start, and unmutes at the
+    end only when unmute_after is requested.
+    """
+
+    def __init__(self, node: CooperPanelNode) -> None:
+        self._node = node
         self._proc: subprocess.Popen | None = None
         self._lock = threading.Lock()
 
@@ -216,11 +222,30 @@ class ShowRunner:
                 cmd += ["--unmute-after"]
             LOGGER.info("Starting show: %s", " ".join(cmd))
             self._proc = subprocess.Popen(cmd)
+            proc = self._proc
+
+        # The show's first step mutes the microphones.
+        self._node.listening_state = False
+
+        def watch() -> None:
+            proc.wait()
+            if unmute_after:
+                self._node.listening_state = True
+            LOGGER.info("Show finished (exit code %s)", proc.returncode)
+
+        threading.Thread(target=watch, name="show-watch", daemon=True).start()
 
 
-def make_handler(node: CooperPanelNode, shows: ShowRunner):
+def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str):
     class Handler(BaseHTTPRequestHandler):
         server_version = "CooperPanel/1.0"
+
+        def _pin_ok(self) -> bool:
+            """Control endpoints require the panel PIN via the X-Pin header."""
+            if not pin:
+                return True
+            supplied = self.headers.get("X-Pin") or ""
+            return hmac.compare_digest(supplied, pin)
 
         # ── plumbing ───────────────────────────────────────────────────────
         def _send_json(self, payload: dict, status: int = 200) -> None:
@@ -248,7 +273,7 @@ def make_handler(node: CooperPanelNode, shows: ShowRunner):
             self.send_response(204)
             self.send_header("Access-Control-Allow-Origin", "*")
             self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-            self.send_header("Access-Control-Allow-Headers", "Content-Type")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Pin")
             self.end_headers()
 
         # ── routes ─────────────────────────────────────────────────────────
@@ -260,6 +285,7 @@ def make_handler(node: CooperPanelNode, shows: ShowRunner):
                     "ok": True,
                     "listening": node.listening_state,
                     "show_running": shows.running(),
+                    "pin_required": bool(pin),
                 })
             if self.path == "/api/dances":
                 try:
@@ -269,6 +295,8 @@ def make_handler(node: CooperPanelNode, shows: ShowRunner):
             return self._send_json({"ok": False, "error": "not found"}, 404)
 
         def do_POST(self):
+            if not self._pin_ok():
+                return self._send_json({"ok": False, "error": "invalid PIN"}, 401)
             body = self._read_json()
             try:
                 if self.path == "/api/dance":
@@ -316,6 +344,9 @@ def main() -> None:
     parser.add_argument("--port", type=int, default=8080)
     parser.add_argument("--bind", default="0.0.0.0")
     parser.add_argument("--mute-service", default=DEFAULT_SET_MUTE_SVC)
+    parser.add_argument("--pin", default=os.getenv("COOPER_PANEL_PIN", ""),
+                        help="PIN required for all control actions "
+                             "(env COOPER_PANEL_PIN; empty = no PIN)")
     parser.add_argument("--log-level", default=os.getenv("LOG_LEVEL", "INFO"))
     args = parser.parse_args()
 
@@ -331,9 +362,15 @@ def main() -> None:
     spin_thread = threading.Thread(target=executor.spin, name="ros-spin", daemon=True)
     spin_thread.start()
 
-    shows = ShowRunner()
-    server = ThreadingHTTPServer((args.bind, args.port), make_handler(node, shows))
-    LOGGER.info("Cooper Control Panel at http://%s:%d/", args.bind, args.port)
+    shows = ShowRunner(node)
+    server = ThreadingHTTPServer(
+        (args.bind, args.port), make_handler(node, shows, args.pin)
+    )
+    LOGGER.info("Cooper Control Panel at http://%s:%d/ (PIN %s)",
+                args.bind, args.port, "enabled" if args.pin else "DISABLED")
+    if not args.pin:
+        LOGGER.warning("No PIN set — anyone on the network can control Cooper. "
+                       "Start with --pin <code> or COOPER_PANEL_PIN.")
     try:
         server.serve_forever()
     except KeyboardInterrupt:

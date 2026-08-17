@@ -8,151 +8,217 @@
   :root {
     --bg: #101418; --panel: #1a2027; --edge: #2c3540;
     --text: #e8edf2; --dim: #8b98a5;
-    --accent: #35b6ff; --ok: #3ecf8e; --warn: #ffb454; --bad: #ff6b6b;
+    --accent: #35b6ff; --ok: #3ecf8e; --bad: #ff6b6b;
   }
   * { box-sizing: border-box; }
   body {
-    margin: 0; padding: 24px; background: var(--bg); color: var(--text);
-    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+    margin: 0; padding: 20px; background: var(--bg); color: var(--text);
+    font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
     display: flex; justify-content: center;
   }
-  main { width: 100%; max-width: 560px; }
-  h1 { font-size: 22px; margin: 0 0 4px; }
-  h1 small { color: var(--dim); font-weight: 400; font-size: 14px; }
+  main { width: 100%; max-width: 480px; }
+
+  /* Header */
+  header { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+  header h1 { font-size: 20px; margin: 0; flex: 1; }
+  .conn { display: flex; align-items: center; gap: 6px; color: var(--dim); font-size: 13px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--dim); }
+  .dot.on { background: var(--ok); } .dot.off { background: var(--bad); }
+  #gear { background: none; border: 1px solid var(--edge); color: var(--dim);
+          border-radius: 8px; padding: 6px 10px; font-size: 15px; cursor: pointer; }
+
   section {
     background: var(--panel); border: 1px solid var(--edge);
-    border-radius: 12px; padding: 16px 18px; margin-top: 16px;
+    border-radius: 14px; padding: 18px; margin-top: 14px;
   }
-  section h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em;
+  section h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em;
                color: var(--dim); margin: 0 0 12px; }
   .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-  .row + .row { margin-top: 10px; }
-  input[type=text], input[type=number], select {
+  .row + .row { margin-top: 12px; }
+
+  input[type=text], input[type=password], input[type=number], select {
     background: #0d1116; color: var(--text); border: 1px solid var(--edge);
-    border-radius: 8px; padding: 9px 12px; font-size: 15px;
+    border-radius: 8px; padding: 10px 12px; font-size: 16px;
   }
-  input[type=text] { flex: 1; min-width: 160px; }
-  select { flex: 1; min-width: 200px; max-width: 100%; }
-  input[type=number] { width: 90px; }
+  input[type=text], input[type=password] { flex: 1; min-width: 150px; }
+  input[type=number] { width: 92px; }
+  select { flex: 1; min-width: 0; }
+
   button {
-    background: var(--accent); color: #04202f; border: 0; border-radius: 8px;
-    padding: 9px 16px; font-size: 15px; font-weight: 600; cursor: pointer;
+    background: var(--accent); color: #04202f; border: 0; border-radius: 10px;
+    padding: 12px 18px; font-size: 16px; font-weight: 650; cursor: pointer;
   }
-  button.secondary { background: #2c3540; color: var(--text); }
-  button.danger { background: var(--bad); color: #2b0808; }
-  button.good { background: var(--ok); color: #06281a; }
+  button.secondary { background: #2c3540; color: var(--text); font-weight: 500; }
   button:disabled { opacity: .45; cursor: default; }
-  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--dim);
-         display: inline-block; margin-right: 6px; }
-  .dot.on { background: var(--ok); } .dot.off { background: var(--bad); }
-  .state { color: var(--dim); font-size: 14px; }
-  label.chk { display: flex; gap: 6px; align-items: center; color: var(--dim);
-              font-size: 14px; user-select: none; }
-  #log {
-    margin-top: 16px; background: #0d1116; border: 1px solid var(--edge);
-    border-radius: 12px; padding: 12px 14px; font: 13px/1.6 ui-monospace, monospace;
-    color: var(--dim); max-height: 180px; overflow-y: auto; white-space: pre-wrap;
+  button.big { width: 100%; padding: 14px; font-size: 17px; }
+
+  /* Listening switch */
+  .switchRow { display: flex; align-items: center; gap: 14px; }
+  .switch { position: relative; width: 58px; height: 32px; flex: none; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .slider {
+    position: absolute; inset: 0; border-radius: 32px; background: #3a2a2a;
+    border: 1px solid var(--edge); transition: background .15s; cursor: pointer;
   }
-  #log .err { color: var(--bad); } #log .ok { color: var(--ok); }
+  .slider::before {
+    content: ""; position: absolute; width: 24px; height: 24px; border-radius: 50%;
+    left: 3px; top: 3px; background: var(--bad); transition: all .15s;
+  }
+  .switch input:checked + .slider { background: #14352a; }
+  .switch input:checked + .slider::before { left: 29px; background: var(--ok); }
+  .switch input:disabled + .slider { opacity: .45; cursor: default; }
+  #listenLabel { font-size: 17px; font-weight: 600; }
+  #listenHint { color: var(--dim); font-size: 13px; margin-top: 6px; }
+
+  label.chk { display: flex; gap: 8px; align-items: center; color: var(--dim);
+              font-size: 14px; user-select: none; }
+  #settings { display: none; }
+  #settings.open { display: block; }
+
+  #status {
+    margin-top: 14px; padding: 10px 14px; border-radius: 10px; font-size: 14px;
+    background: #0d1116; border: 1px solid var(--edge); color: var(--dim);
+    min-height: 42px;
+  }
+  #status.ok { color: var(--ok); } #status.err { color: var(--bad); }
 </style>
 </head>
 <body>
 <main>
-  <h1>🤖 Cooper Control Panel <small>AgiBot X2 Ultra — One Comcentre</small></h1>
+  <header>
+    <h1>🤖 Cooper</h1>
+    <span class="conn"><span class="dot" id="connDot"></span><span id="connText">connecting…</span></span>
+    <button id="gear" title="Connection settings">⚙</button>
+  </header>
 
-  <section>
+  <section id="settings">
     <h2>Connection</h2>
     <div class="row">
-      <input type="text" id="ip" placeholder="Cooper IP address (e.g. 192.168.1.50)">
+      <input type="text" id="ip" placeholder="Cooper IP address">
       <input type="number" id="port" value="8080" min="1" max="65535" title="Port">
+    </div>
+    <div class="row">
+      <input type="password" id="pin" placeholder="Panel PIN">
       <button id="connect">Connect</button>
     </div>
-    <div class="row state"><span class="dot" id="connDot"></span><span id="connState">Not connected</span></div>
   </section>
 
   <section>
-    <h2>Listening mode</h2>
-    <div class="row">
-      <button class="good" id="listenOn">Listening ON</button>
-      <button class="danger" id="listenOff">Listening OFF (mute)</button>
-      <span class="state"><span class="dot" id="listenDot"></span><span id="listenState">unknown</span></span>
+    <h2>Listening</h2>
+    <div class="switchRow">
+      <label class="switch">
+        <input type="checkbox" id="listenSwitch">
+        <span class="slider"></span>
+      </label>
+      <span id="listenLabel">…</span>
     </div>
+    <div id="listenHint">Off = Cooper ignores surrounding conversation.</div>
   </section>
 
   <section>
-    <h2>Dance</h2>
+    <h2>Performance</h2>
     <div class="row">
-      <select id="dances"><option value="">— connect to load dances —</option></select>
-      <button class="secondary" id="refresh">↻</button>
+      <select id="dances"><option value="">Loading dances…</option></select>
+      <button class="secondary" id="refresh" title="Reload dance list">↻</button>
     </div>
     <div class="row">
-      <button id="playDance">Play dance</button>
-      <button class="secondary" id="runShow">Run full show</button>
-      <label class="chk"><input type="checkbox" id="unmuteAfter"> unmute after show</label>
+      <button class="big" id="runShow">▶ Run full show</button>
+    </div>
+    <div class="row">
+      <button class="secondary" id="playDance">Play dance only</button>
+      <label class="chk"><input type="checkbox" id="unmuteAfter"> listen again after show</label>
     </div>
   </section>
 
-  <div id="log"></div>
+  <div id="status">Ready.</div>
 </main>
 
 <script>
 (() => {
   const $ = id => document.getElementById(id);
-  const logEl = $("log");
+  let showRunning = false;
 
-  function log(msg, cls) {
-    const line = document.createElement("div");
-    if (cls) line.className = cls;
-    line.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
-    logEl.prepend(line);
+  function status(msg, cls = "") {
+    $("status").className = cls;
+    $("status").textContent = msg;
   }
 
-  // ── Cooper address: default to the host serving this page, editable, saved ──
-  const savedIp = localStorage.getItem("cooper_ip");
-  const savedPort = localStorage.getItem("cooper_port");
-  $("ip").value = savedIp || (location.hostname && location.hostname !== "" ? location.hostname : "");
-  if (savedPort) $("port").value = savedPort;
+  // ── connection settings (saved in the browser) ─────────────────────────
+  $("ip").value   = localStorage.getItem("cooper_ip")   || location.hostname || "";
+  $("port").value = localStorage.getItem("cooper_port") || "8080";
+  $("pin").value  = localStorage.getItem("cooper_pin")  || "";
 
   const base = () => `http://${$("ip").value.trim()}:${$("port").value.trim()}`;
 
+  function saveSettings() {
+    localStorage.setItem("cooper_ip", $("ip").value.trim());
+    localStorage.setItem("cooper_port", $("port").value.trim());
+    localStorage.setItem("cooper_pin", $("pin").value);
+  }
+
   async function api(path, opts = {}) {
     const res = await fetch(base() + path, {
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "X-Pin": $("pin").value },
       ...opts,
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok || data.ok === false) {
-      throw new Error(data.error || `HTTP ${res.status}`);
+    if (res.status === 401) {
+      $("settings").classList.add("open");
+      throw new Error("PIN required — enter it in ⚙ settings");
     }
+    if (!res.ok || data.ok === false) throw new Error(data.error || `HTTP ${res.status}`);
     return data;
   }
 
-  function setConnected(ok, detail) {
-    $("connDot").className = "dot " + (ok ? "on" : "off");
-    $("connState").textContent = ok ? `Connected to ${base()}` : (detail || "Not connected");
+  // ── live status (polled every 3 s) ─────────────────────────────────────
+  function render(s) {
+    $("connDot").className = "dot on";
+    $("connText").textContent = "connected";
+
+    showRunning = !!s.show_running;
+    $("runShow").disabled = showRunning;
+    $("playDance").disabled = showRunning;
+    $("runShow").textContent = showRunning ? "⏳ Show running…" : "▶ Run full show";
+
+    const sw = $("listenSwitch");
+    sw.disabled = showRunning;
+    if (s.listening === true)  { sw.checked = true;  $("listenLabel").textContent = "Listening"; }
+    else if (s.listening === false) { sw.checked = false; $("listenLabel").textContent = "Muted"; }
+    else { sw.checked = false; $("listenLabel").textContent = "Unknown"; }
+    $("listenHint").textContent = showRunning
+      ? "The show controls the microphone while it is running."
+      : "Off = Cooper ignores surrounding conversation.";
   }
 
-  function setListening(state) {
-    const dot = $("listenDot"), label = $("listenState");
-    if (state === true)  { dot.className = "dot on";  label.textContent = "listening"; }
-    else if (state === false) { dot.className = "dot off"; label.textContent = "muted"; }
-    else { dot.className = "dot"; label.textContent = "unknown"; }
-  }
-
-  async function connect() {
-    const ip = $("ip").value.trim();
-    if (!ip) { log("Enter Cooper's IP address first.", "err"); return; }
-    localStorage.setItem("cooper_ip", ip);
-    localStorage.setItem("cooper_port", $("port").value.trim());
+  let pollTimer = null;
+  async function poll() {
     try {
-      const status = await api("/api/status");
-      setConnected(true);
-      setListening(status.listening);
-      log(`Connected. Show running: ${status.show_running ? "yes" : "no"}`, "ok");
+      render(await api("/api/status"));
+    } catch (e) {
+      $("connDot").className = "dot off";
+      $("connText").textContent = "offline";
+    }
+  }
+  function startPolling() {
+    if (pollTimer) clearInterval(pollTimer);
+    pollTimer = setInterval(poll, 3000);
+  }
+
+  // ── actions ────────────────────────────────────────────────────────────
+  async function connect() {
+    saveSettings();
+    if (!$("ip").value.trim()) { status("Enter Cooper's IP address in ⚙ settings.", "err"); return; }
+    try {
+      const s = await api("/api/status");
+      render(s);
+      $("settings").classList.remove("open");
+      status("Connected to Cooper.", "ok");
+      startPolling();
       await refreshDances();
     } catch (e) {
-      setConnected(false, "Connection failed");
-      log(`Connect failed: ${e.message}`, "err");
+      $("connDot").className = "dot off";
+      $("connText").textContent = "offline";
+      status(`Cannot reach Cooper: ${e.message}`, "err");
     }
   }
 
@@ -162,37 +228,54 @@
       const sel = $("dances");
       sel.innerHTML = "";
       if (!dances.length) {
-        sel.innerHTML = '<option value="">— no LinkCraft dances found —</option>';
-        log("No LinkCraft dances found on Cooper.", "err");
+        sel.innerHTML = '<option value="">No dances found</option>';
         return;
       }
       for (const d of dances) {
         const opt = document.createElement("option");
         opt.value = d.key;
-        opt.textContent = d.name !== d.key ? `${d.name} (${d.key.slice(-8)})` : d.key;
+        opt.textContent = d.name !== d.key ? d.name : d.key.slice(-16);
         sel.appendChild(opt);
       }
-      log(`Loaded ${dances.length} dance(s) from the LinkCraft library.`, "ok");
+      const last = localStorage.getItem("cooper_dance");
+      if (last && [...sel.options].some(o => o.value === last)) sel.value = last;
     } catch (e) {
-      log(`Loading dances failed: ${e.message}`, "err");
+      status(`Loading dances failed: ${e.message}`, "err");
     }
   }
 
-  async function playDance() {
+  $("listenSwitch").addEventListener("change", async e => {
+    const listen = e.target.checked;
+    e.target.disabled = true;
+    try {
+      await api("/api/listening", { method: "POST", body: JSON.stringify({ listen }) });
+      status(listen ? "Cooper is listening." : "Cooper is muted.", "ok");
+    } catch (err) {
+      e.target.checked = !listen;
+      status(`Could not change listening: ${err.message}`, "err");
+    } finally {
+      e.target.disabled = showRunning;
+      poll();
+    }
+  });
+
+  $("playDance").addEventListener("click", async () => {
     const key = $("dances").value;
-    if (!key) { log("Pick a dance first.", "err"); return; }
+    if (!key) { status("Pick a dance first.", "err"); return; }
+    localStorage.setItem("cooper_dance", key);
     $("playDance").disabled = true;
     try {
       await api("/api/dance", { method: "POST", body: JSON.stringify({ key }) });
-      log(`Dance started: ${$("dances").selectedOptions[0].textContent}`, "ok");
+      status(`Dance started: ${$("dances").selectedOptions[0].textContent}`, "ok");
     } catch (e) {
-      log(`Dance failed: ${e.message}`, "err");
+      status(`Dance failed: ${e.message}`, "err");
     } finally {
-      $("playDance").disabled = false;
+      $("playDance").disabled = showRunning;
     }
-  }
+  });
 
-  async function runShow() {
+  $("runShow").addEventListener("click", async () => {
+    localStorage.setItem("cooper_dance", $("dances").value);
     $("runShow").disabled = true;
     try {
       await api("/api/show", {
@@ -202,35 +285,21 @@
           unmute_after: $("unmuteAfter").checked,
         }),
       });
-      log("Full show started.", "ok");
+      status("Show started — Cooper is muted for the performance.", "ok");
+      poll();
     } catch (e) {
-      log(`Show failed: ${e.message}`, "err");
-    } finally {
-      setTimeout(() => { $("runShow").disabled = false; }, 3000);
+      status(`Show failed: ${e.message}`, "err");
+      $("runShow").disabled = false;
     }
-  }
+  });
 
-  async function listening(listen) {
-    try {
-      await api("/api/listening", { method: "POST", body: JSON.stringify({ listen }) });
-      setListening(listen);
-      log(listen ? "Listening ENABLED — Cooper hears the audience."
-                 : "Listening DISABLED — microphones muted.", "ok");
-    } catch (e) {
-      log(`Listening change failed: ${e.message}`, "err");
-    }
-  }
-
+  $("gear").addEventListener("click", () => $("settings").classList.toggle("open"));
   $("connect").addEventListener("click", connect);
   $("refresh").addEventListener("click", refreshDances);
-  $("playDance").addEventListener("click", playDance);
-  $("runShow").addEventListener("click", runShow);
-  $("listenOn").addEventListener("click", () => listening(true));
-  $("listenOff").addEventListener("click", () => listening(false));
-  $("ip").addEventListener("keydown", e => { if (e.key === "Enter") connect(); });
+  ["ip", "port", "pin"].forEach(id =>
+    $(id).addEventListener("keydown", e => { if (e.key === "Enter") connect(); }));
 
-  // Auto-connect when the page is served by Cooper itself.
-  if ($("ip").value) connect();
+  if ($("ip").value) connect(); else $("settings").classList.add("open");
 })();
 </script>
 </body>

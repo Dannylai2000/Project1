@@ -40,15 +40,22 @@ Features:
   selected dance.
 - **Listening mode switch** — Listening ON / OFF buttons (mic mute via
   `SetMute`), with the current state shown in the panel.
-- **Cooper IP address field** — defaults to the host serving the page and
-  is saved in the browser (localStorage), so if Cooper's IP changes just
-  type the new one and press Connect.
+- **Cooper IP address field** — in the ⚙ settings panel; defaults to the
+  host serving the page and is saved in the browser (localStorage), so if
+  Cooper's IP changes just type the new one and press Connect.
+- **PIN protection** — all control actions (listening, dance, show)
+  require a PIN when the server is started with one. The page asks for it
+  in ⚙ settings and remembers it.
+- **Live status** — the page polls Cooper every 3 seconds: connection dot,
+  listening state, and show-in-progress (buttons lock while a show runs).
+  The server also mirrors the show's mic behaviour, so the listening
+  switch stays truthful when the show mutes/unmutes the robot.
 
 Start on the robot:
 
 ```bash
 source /opt/ros/humble/setup.bash && source ~/aimdk/install/setup.bash
-python3 cooper_panel_server.py --port 8080
+python3 cooper_panel_server.py --port 8080 --pin 2468
 ```
 
 Then browse to `http://<cooper-ip>:8080`. (You can also open
