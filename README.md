@@ -56,6 +56,10 @@ Features:
   and `{name}` in any message is replaced with the entered name (blank =
   "everyone"). All texts are freely editable and saved in the browser;
   blank fields fall back to the script's built-in lines.
+- **Dance shortlist** — ⚙ Settings lists every song in Cooper's LinkCraft
+  library with checkboxes; ticked songs are the only ones shown in the
+  main dance list (none ticked = show every song). Saved in the browser,
+  with Tick all / Clear all buttons.
 
 The control API (`cooper_panel_server.py`) always runs on Cooper:
 
