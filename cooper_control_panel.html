@@ -68,6 +68,18 @@
   }
   #newNotice span { color: var(--warn); font-size: 14px; flex: 1; }
 
+  /* Performance diagnostics */
+  #diagLog {
+    background: #0d1116; border: 1px solid var(--edge); border-radius: 8px;
+    padding: 10px 12px; max-height: 190px; overflow-y: auto;
+    font: 12.5px/1.7 ui-monospace, monospace; color: var(--dim);
+    white-space: pre-wrap;
+  }
+  #diagLog .empty { color: var(--dim); font-family: inherit; }
+  #diagLog .fast { color: var(--ok); }
+  #diagLog .mid  { color: var(--warn); }
+  #diagLog .slow { color: var(--bad); }
+
   button {
     background: var(--accent); color: #04202f; border: 0; border-radius: 10px;
     padding: 12px 18px; font-size: 16px; font-weight: 650; cursor: pointer;
@@ -159,6 +171,10 @@
       <input type="password" id="pin" placeholder="Panel PIN">
       <button id="connect">Connect</button>
     </div>
+    <div class="row" style="margin-top:4px">
+      <label class="chk"><input type="checkbox" id="diagToggle">
+        Performance diagnostics — show Cooper's response times</label>
+    </div>
     <div class="field">
       <label>Dance song shortlist — ticked songs appear in the dance list
         (none ticked = show every song)</label>
@@ -237,6 +253,17 @@
   </details>
 
   <div id="status">Ready.</div>
+
+  <section id="diagCard" style="display:none">
+    <h2>Performance diagnostics</h2>
+    <div id="diagLog"><span class="empty">No measurements yet — press any control button.</span></div>
+    <div class="hint">total = click → Cooper's acknowledgment · network = browser ↔ Cooper ·
+      robot = Cooper accepting the command internally. "Run full show" measures the
+      launch only; speech and motion follow on the robot.</div>
+    <div class="row" style="margin-top:10px">
+      <button class="secondary" id="diagClear">Clear</button>
+    </div>
+  </section>
 </main>
 
 <script>
@@ -329,11 +356,13 @@
   }
 
   async function api(path, opts = {}) {
+    const t0 = performance.now();
     const res = await fetch(base() + path, {
       headers: { "Content-Type": "application/json", "X-Pin": $("pin").value },
       ...opts,
     });
     const data = await res.json().catch(() => ({}));
+    data._client_ms = performance.now() - t0;
     if (res.status === 401) {
       $("settings").classList.add("open");
       throw new Error("PIN required — enter it in ⚙ settings");
@@ -342,10 +371,64 @@
     return data;
   }
 
+  // ── performance diagnostics ────────────────────────────────────────────
+  let diagOn = localStorage.getItem("cooper_diag") === "1";
+  const diagEntries = [];
+
+  function setDiag(on) {
+    diagOn = on;
+    localStorage.setItem("cooper_diag", on ? "1" : "0");
+    $("diagToggle").checked = on;
+    $("diagCard").style.display = on ? "block" : "none";
+  }
+
+  function logDiag(action, data) {
+    if (!diagOn) return;
+    const total = Math.round(data._client_ms || 0);
+    const t = data.timing || {};
+    const server = t.server_total_ms;
+    const parts = [`total ${total} ms`];
+    if (server != null) {
+      parts.push(`network ${Math.max(0, Math.round(total - server))} ms`);
+      parts.push(`server ${Math.round(server)} ms`);
+    }
+    if (t.robot_ack_ms != null) parts.push(`robot ${Math.round(t.robot_ack_ms)} ms`);
+    if (t.service_wait_ms != null && t.service_wait_ms >= 1)
+      parts.push(`svc wait ${Math.round(t.service_wait_ms)} ms`);
+    if (t.library_lookup_ms != null && t.library_lookup_ms >= 1)
+      parts.push(`lookup ${Math.round(t.library_lookup_ms)} ms`);
+    if (t.launch_ms != null) parts.push(`launch ${Math.round(t.launch_ms)} ms`);
+    const cls = total < 400 ? "fast" : total < 1500 ? "mid" : "slow";
+    diagEntries.unshift({
+      time: new Date().toLocaleTimeString(),
+      action, text: parts.join(" · "), cls,
+    });
+    if (diagEntries.length > 10) diagEntries.pop();
+    renderDiag();
+  }
+
+  function renderDiag() {
+    const box = $("diagLog");
+    box.innerHTML = "";
+    if (!diagEntries.length) {
+      box.innerHTML = '<span class="empty">No measurements yet — press any control button.</span>';
+      return;
+    }
+    for (const e of diagEntries) {
+      const line = document.createElement("div");
+      line.className = e.cls;
+      line.textContent = `${e.time}  ${e.action}: ${e.text}`;
+      box.appendChild(line);
+    }
+  }
+  setDiag(diagOn);
+
   // ── live status (polled every 3 s) ─────────────────────────────────────
   function render(s) {
     $("connDot").className = "dot on";
-    $("connText").textContent = "connected";
+    $("connText").textContent = diagOn && s._client_ms != null
+      ? `connected · ${Math.round(s._client_ms)} ms`
+      : "connected";
 
     showRunning = !!s.show_running;
     $("runShow").disabled = showRunning;
@@ -524,7 +607,8 @@
     const listen = e.target.checked;
     e.target.disabled = true;
     try {
-      await api("/api/listening", { method: "POST", body: JSON.stringify({ listen }) });
+      const data = await api("/api/listening", { method: "POST", body: JSON.stringify({ listen }) });
+      logDiag(listen ? "Listening ON" : "Listening OFF", data);
       status(listen ? "Cooper is listening." : "Cooper is muted.", "ok");
     } catch (err) {
       e.target.checked = !listen;
@@ -541,7 +625,8 @@
     localStorage.setItem("cooper_dance", key);
     $("playDance").disabled = true;
     try {
-      await api("/api/dance", { method: "POST", body: JSON.stringify({ key }) });
+      const data = await api("/api/dance", { method: "POST", body: JSON.stringify({ key }) });
+      logDiag("Play dance", data);
       status(`Dance started: ${$("dances").selectedOptions[0].textContent}`, "ok");
     } catch (e) {
       status(`Dance failed: ${e.message}`, "err");
@@ -554,7 +639,7 @@
     localStorage.setItem("cooper_dance", $("dances").value);
     $("runShow").disabled = true;
     try {
-      await api("/api/show", {
+      const data = await api("/api/show", {
         method: "POST",
         body: JSON.stringify({
           dance_key: $("dances").value || null,
@@ -566,6 +651,7 @@
           goodbye: $("goodbyeMsg").value.trim(),
         }),
       });
+      logDiag("Run show", data);
       status("Show started — Cooper is muted for the performance.", "ok");
       poll();
     } catch (e) {
@@ -584,6 +670,8 @@
     await refreshDances();
     $("shortlist").scrollIntoView({ behavior: "smooth", block: "center" });
   });
+  $("diagToggle").addEventListener("change", e => setDiag(e.target.checked));
+  $("diagClear").addEventListener("click", () => { diagEntries.length = 0; renderDiag(); });
   $("markSeen").addEventListener("click", async () => {
     try {
       await api("/api/songs_seen", { method: "POST", body: "{}" });

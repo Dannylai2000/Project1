@@ -63,6 +63,12 @@ Features:
   stored **on Cooper** (`cooper_panel_config.json` next to the server),
   so every device shares the same list; changing it requires the PIN.
   Tick all / Clear all buttons included.
+- **Performance diagnostics** — a toggle in ⚙ Settings. When on, every
+  control action logs a timing breakdown in a diagnostics card: total
+  (click → Cooper's acknowledgment), network (browser ↔ Cooper), server
+  processing, and robot acknowledgment (the ROS service round-trip),
+  color-coded green/amber/red. The connection status also shows a live
+  ping. Off by default so daily users never see it.
 - **New-song alerts** — Cooper's server re-checks the LinkCraft library in
   the background (every 5 min, `--library-poll` to change) and compares it
   with a shared "seen" list. When the LinkCraft cloud pushes new songs,

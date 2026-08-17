@@ -153,7 +153,9 @@ class CooperPanelNode(Node):
         return dances
 
     def start_dance(self, resource_key: str) -> dict:
-        """Start a LinkCraft dance by resource key."""
+        """Start a LinkCraft dance by resource key. Includes timing breakdown."""
+        timing: dict = {}
+        t0 = time.perf_counter()
         with self._lock:
             resource = self._resource_cache.get(resource_key)
         if resource is None:
@@ -163,9 +165,12 @@ class CooperPanelNode(Node):
                 resource = self._resource_cache.get(resource_key)
         if resource is None:
             raise RuntimeError(f"dance resource {resource_key!r} not found on robot")
+        timing["library_lookup_ms"] = round((time.perf_counter() - t0) * 1000, 1)
 
+        t0 = time.perf_counter()
         if not self._exec_action.wait_for_service(timeout_sec=5.0):
             raise RuntimeError("ExecuteActionResource service not available")
+        timing["service_wait_ms"] = round((time.perf_counter() - t0) * 1000, 1)
 
         req = ExecuteActionResource.Request()
         self._stamp(req)
@@ -178,9 +183,11 @@ class CooperPanelNode(Node):
             else '{"resource_type": "ARM_MONTION"}'
         )
 
+        t0 = time.perf_counter()
         resp = self._wait(self._exec_action.call_async(req), 20.0)
         if resp is None:
             raise RuntimeError("ExecuteActionResource timed out")
+        timing["robot_ack_ms"] = round((time.perf_counter() - t0) * 1000, 1)
 
         code, msg = 0, ""
         with suppress(AttributeError, TypeError, ValueError):
@@ -188,20 +195,27 @@ class CooperPanelNode(Node):
             msg  = str(resp.header.message or "").strip()
         if code not in (None, 0) or any(w in msg.lower() for w in ("fail", "error", "reject")):
             raise RuntimeError(f"dance rejected (code={code}): {msg}")
-        return {"code": code, "message": msg}
+        return {"code": code, "message": msg, "timing": timing}
 
-    def set_listening(self, listen: bool) -> None:
-        """Unmute (listen=True) or mute (listen=False) Cooper's microphones."""
+    def set_listening(self, listen: bool) -> dict:
+        """Unmute (listen=True) or mute (listen=False) Cooper's microphones.
+
+        Returns a timing breakdown for the performance diagnostics.
+        """
+        timing: dict = {}
         if self._set_mute is None:
             raise RuntimeError("SetMute not available in this aimdk_msgs build")
+        t0 = time.perf_counter()
         if not self._set_mute.wait_for_service(timeout_sec=5.0):
             raise RuntimeError("SetMute service not available")
+        timing["service_wait_ms"] = round((time.perf_counter() - t0) * 1000, 1)
 
         req = SetMute.Request()
         self._stamp(req)
         req.is_mute = not listen
 
         response = None
+        t0 = time.perf_counter()
         for _ in range(8):
             future = self._set_mute.call_async(req)
             done = threading.Event()
@@ -211,8 +225,10 @@ class CooperPanelNode(Node):
                 break
         if response is None:
             raise RuntimeError("SetMute timed out")
+        timing["robot_ack_ms"] = round((time.perf_counter() - t0) * 1000, 1)
         self.listening_state = listen
         LOGGER.info("Microphone %s", "UNMUTED (listening)" if listen else "MUTED")
+        return timing
 
 
 class ShowRunner:
@@ -239,7 +255,8 @@ class ShowRunner:
         greeting: str | None = None,
         intro: str | None = None,
         goodbye: str | None = None,
-    ) -> None:
+    ) -> dict:
+        t0 = time.perf_counter()
         with self._lock:
             if self._proc is not None and self._proc.poll() is None:
                 raise RuntimeError("a show is already running")
@@ -268,6 +285,7 @@ class ShowRunner:
             LOGGER.info("Show finished (exit code %s)", proc.returncode)
 
         threading.Thread(target=watch, name="show-watch", daemon=True).start()
+        return {"launch_ms": round((time.perf_counter() - t0) * 1000, 1)}
 
 
 class PanelConfig:
@@ -493,20 +511,28 @@ def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str,
             if not self._pin_ok():
                 return self._send_json({"ok": False, "error": "invalid PIN"}, 401)
             body = self._read_json()
+            t_start = time.perf_counter()
+
+            def server_ms() -> float:
+                return round((time.perf_counter() - t_start) * 1000, 1)
+
             try:
                 if self.path == "/api/dance":
                     key = str(body.get("key") or "")
                     if not key:
                         return self._send_json({"ok": False, "error": "missing 'key'"}, 400)
                     result = node.start_dance(key)
-                    return self._send_json({"ok": True, **result})
+                    timing = result.pop("timing", {})
+                    timing["server_total_ms"] = server_ms()
+                    return self._send_json({"ok": True, **result, "timing": timing})
 
                 if self.path == "/api/listening":
                     if "listen" not in body:
                         return self._send_json({"ok": False, "error": "missing 'listen'"}, 400)
                     listen = bool(body["listen"])
-                    node.set_listening(listen)
-                    return self._send_json({"ok": True, "listening": listen})
+                    timing = node.set_listening(listen)
+                    timing["server_total_ms"] = server_ms()
+                    return self._send_json({"ok": True, "listening": listen, "timing": timing})
 
                 if self.path == "/api/shortlist":
                     saved = config.set_shortlist(body.get("shortlist"))
@@ -517,14 +543,16 @@ def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str,
 
                 if self.path == "/api/show":
                     greeting, intro, goodbye = resolve_messages(body)
-                    shows.start(
+                    timing = shows.start(
                         dance_key=str(body.get("dance_key") or "") or None,
                         unmute_after=bool(body.get("unmute_after", False)),
                         greeting=greeting,
                         intro=intro,
                         goodbye=goodbye,
                     )
-                    return self._send_json({"ok": True, "show_running": True})
+                    timing["server_total_ms"] = server_ms()
+                    return self._send_json({"ok": True, "show_running": True,
+                                            "timing": timing})
 
                 return self._send_json({"ok": False, "error": "not found"}, 404)
             except Exception as exc:
