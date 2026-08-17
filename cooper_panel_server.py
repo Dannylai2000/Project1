@@ -304,6 +304,96 @@ class PanelConfig:
         LOGGER.info("Shortlist saved: %d song(s)", len(cleaned))
         return cleaned
 
+    def get_seen_songs(self) -> list[str] | None:
+        """Song keys every device has already been shown. None = never set."""
+        with self._lock:
+            try:
+                data = json.loads(self._path.read_text())
+            except (OSError, json.JSONDecodeError):
+                return None
+        items = data.get("seen_songs")
+        if items is None:
+            return None
+        return [str(k) for k in items if isinstance(k, str)]
+
+    def set_seen_songs(self, keys) -> None:
+        cleaned = sorted({
+            str(k).strip()[: self.MAX_KEY_LEN]
+            for k in list(keys)[: self.MAX_KEYS]
+            if str(k).strip()
+        })
+        with self._lock:
+            try:
+                data = json.loads(self._path.read_text())
+            except (OSError, json.JSONDecodeError):
+                data = {}
+            data["seen_songs"] = cleaned
+            self._path.write_text(json.dumps(data, indent=2))
+
+
+class LibraryWatcher:
+    """Keeps a cached copy of the dance library and flags new arrivals.
+
+    LinkCraft can push new songs to Cooper at any time. A background poll
+    compares the library against the shared 'seen' list, so every device's
+    status polling can surface "new songs" without anyone pressing refresh.
+    """
+
+    def __init__(self, node: CooperPanelNode, config: PanelConfig, poll_s: float) -> None:
+        self._node = node
+        self._config = config
+        self._poll_s = poll_s
+        self._lock = threading.Lock()
+        self._dances: list[dict] = []
+        self._new_count = 0
+
+    def refresh(self) -> list[dict]:
+        """Fetch the library live and annotate each song with is_new."""
+        dances = self._node.list_dances()
+        keys = [d["key"] for d in dances]
+        seen = self._config.get_seen_songs()
+        if seen is None:
+            # First ever run: current library is the baseline, nothing is new.
+            self._config.set_seen_songs(keys)
+            seen = keys
+        seen_set = set(seen)
+        for d in dances:
+            d["is_new"] = d["key"] not in seen_set
+        with self._lock:
+            self._dances = dances
+            self._new_count = sum(1 for d in dances if d["is_new"])
+            if self._new_count:
+                LOGGER.info("LinkCraft library: %d song(s), %d NEW",
+                            len(dances), self._new_count)
+        return dances
+
+    def counts(self) -> tuple[int, int]:
+        with self._lock:
+            return len(self._dances), self._new_count
+
+    def mark_all_seen(self) -> int:
+        """Acknowledge every currently known song; clears the NEW flags."""
+        with self._lock:
+            keys = [d["key"] for d in self._dances]
+            for d in self._dances:
+                d["is_new"] = False
+            self._new_count = 0
+        self._config.set_seen_songs(keys)
+        LOGGER.info("Marked %d song(s) as seen", len(keys))
+        return len(keys)
+
+    def start_polling(self) -> None:
+        def loop() -> None:
+            time.sleep(5.0)  # give ROS services a moment on startup
+            while True:
+                try:
+                    self.refresh()
+                except Exception:
+                    LOGGER.debug("Library poll failed", exc_info=True)
+                time.sleep(self._poll_s)
+
+        threading.Thread(target=loop, name="library-poll", daemon=True).start()
+
 
 MAX_MESSAGE_LEN = 500
 
@@ -331,7 +421,7 @@ def resolve_messages(body: dict) -> tuple[str | None, str | None]:
 
 
 def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str,
-                 config: PanelConfig):
+                 config: PanelConfig, library: LibraryWatcher):
     class Handler(BaseHTTPRequestHandler):
         server_version = "CooperPanel/1.0"
 
@@ -378,15 +468,18 @@ def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str,
             if self.path == "/favicon.png":
                 return self._serve_favicon()
             if self.path == "/api/status":
+                library_size, new_songs = library.counts()
                 return self._send_json({
                     "ok": True,
                     "listening": node.listening_state,
                     "show_running": shows.running(),
                     "pin_required": bool(pin),
+                    "library_size": library_size,
+                    "new_songs": new_songs,
                 })
             if self.path == "/api/dances":
                 try:
-                    return self._send_json({"ok": True, "dances": node.list_dances()})
+                    return self._send_json({"ok": True, "dances": library.refresh()})
                 except Exception as exc:
                     return self._send_json({"ok": False, "error": str(exc)}, 502)
             if self.path == "/api/shortlist":
@@ -415,6 +508,9 @@ def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str,
                 if self.path == "/api/shortlist":
                     saved = config.set_shortlist(body.get("shortlist"))
                     return self._send_json({"ok": True, "shortlist": saved})
+
+                if self.path == "/api/songs_seen":
+                    return self._send_json({"ok": True, "seen": library.mark_all_seen()})
 
                 if self.path == "/api/show":
                     greeting, goodbye = resolve_messages(body)
@@ -465,6 +561,9 @@ def main() -> None:
     parser.add_argument("--pin", default=os.getenv("COOPER_PANEL_PIN", ""),
                         help="PIN required for all control actions "
                              "(env COOPER_PANEL_PIN; empty = no PIN)")
+    parser.add_argument("--library-poll", type=float, default=300.0,
+                        help="seconds between background checks of the "
+                             "LinkCraft library for new songs")
     parser.add_argument("--log-level", default=os.getenv("LOG_LEVEL", "INFO"))
     args = parser.parse_args()
 
@@ -482,8 +581,10 @@ def main() -> None:
 
     shows = ShowRunner(node)
     config = PanelConfig(CONFIG_FILE)
+    library = LibraryWatcher(node, config, args.library_poll)
+    library.start_polling()
     server = ThreadingHTTPServer(
-        (args.bind, args.port), make_handler(node, shows, args.pin, config)
+        (args.bind, args.port), make_handler(node, shows, args.pin, config, library)
     )
     LOGGER.info("Cooper Control Panel at http://%s:%d/ (PIN %s)",
                 args.bind, args.port, "enabled" if args.pin else "DISABLED")

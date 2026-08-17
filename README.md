@@ -62,6 +62,12 @@ Features:
   stored **on Cooper** (`cooper_panel_config.json` next to the server),
   so every device shares the same list; changing it requires the PIN.
   Tick all / Clear all buttons included.
+- **New-song alerts** — Cooper's server re-checks the LinkCraft library in
+  the background (every 5 min, `--library-poll` to change) and compares it
+  with a shared "seen" list. When the LinkCraft cloud pushes new songs,
+  every panel shows a "✨ N new dance songs" banner with a Review button;
+  in the shortlist the new songs are sorted to the top with a NEW badge.
+  "Mark NEW as seen" (PIN) clears the alert for all devices at once.
 
 The control API (`cooper_panel_server.py`) always runs on Cooper:
 

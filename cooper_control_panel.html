@@ -58,6 +58,15 @@
   #shortlist label { display: flex; gap: 9px; align-items: center; cursor: pointer; }
   #shortlist input[type=checkbox] { width: 17px; height: 17px; accent-color: var(--accent); }
   #shortlist .empty { color: var(--dim); }
+  .pill {
+    background: var(--warn); color: #3a2600; border-radius: 5px;
+    font-size: 11px; font-weight: 750; padding: 1px 7px; margin-left: auto;
+  }
+  #newNotice {
+    background: rgba(255, 180, 84, .12); border: 1px solid var(--warn);
+    border-radius: 10px; padding: 10px 12px;
+  }
+  #newNotice span { color: var(--warn); font-size: 14px; flex: 1; }
 
   button {
     background: var(--accent); color: #04202f; border: 0; border-radius: 10px;
@@ -157,6 +166,7 @@
       <div class="row" style="margin-top:8px">
         <button class="secondary" id="slAll">Tick all</button>
         <button class="secondary" id="slNone">Clear all</button>
+        <button class="secondary" id="markSeen" style="display:none">Mark NEW as seen</button>
       </div>
     </div>
   </section>
@@ -175,6 +185,10 @@
 
   <section>
     <h2>Performance</h2>
+    <div class="row" id="newNotice" style="display:none">
+      <span id="newNoticeText">✨ New dance songs from LinkCraft</span>
+      <button class="secondary" id="reviewNew">Review</button>
+    </div>
     <div class="row">
       <select id="dances"><option value="">Loading dances…</option></select>
       <button class="secondary" id="refresh" title="Reload dance list">↻</button>
@@ -338,6 +352,14 @@
     $("listenHint").textContent = showRunning
       ? "The show controls the microphone while it is running."
       : "Off = Cooper ignores surrounding conversation.";
+
+    // New-song alert from Cooper's background library check.
+    const n = s.new_songs || 0;
+    $("newNotice").style.display = n ? "flex" : "none";
+    if (n) {
+      $("newNoticeText").textContent =
+        `✨ ${n} new dance song${n > 1 ? "s" : ""} arrived from LinkCraft`;
+    }
   }
 
   let pollTimer = null;
@@ -420,11 +442,15 @@
   function renderShortlist() {
     const box = $("shortlist");
     box.innerHTML = "";
+    const anyNew = allDances.some(d => d.is_new);
+    $("markSeen").style.display = anyNew ? "inline-block" : "none";
     if (!allDances.length) {
       box.innerHTML = '<span class="empty">Connect to Cooper to load the song library.</span>';
       return;
     }
-    for (const d of allDances) {
+    // New arrivals first, so they cannot be missed.
+    const sorted = [...allDances].sort((a, b) => (b.is_new ? 1 : 0) - (a.is_new ? 1 : 0));
+    for (const d of sorted) {
       const label = document.createElement("label");
       const cb = document.createElement("input");
       cb.type = "checkbox";
@@ -436,6 +462,12 @@
       });
       label.appendChild(cb);
       label.appendChild(document.createTextNode(danceLabel(d)));
+      if (d.is_new) {
+        const pill = document.createElement("span");
+        pill.className = "pill";
+        pill.textContent = "NEW";
+        label.appendChild(pill);
+      }
       box.appendChild(label);
     }
   }
@@ -472,7 +504,9 @@
       renderShortlist();
       renderDanceSelect();
       const shown = $("dances").options.length;
-      status(`Song library loaded: ${allDances.length} song(s), ${shown} in the dance list.`, "ok");
+      const fresh = allDances.filter(d => d.is_new).length;
+      status(`Song library loaded: ${allDances.length} song(s), ${shown} in the dance list` +
+             (fresh ? `, ${fresh} NEW` : "") + ".", "ok");
     } catch (e) {
       status(`Loading dances failed: ${e.message}`, "err");
     }
@@ -536,6 +570,21 @@
   $("profile").addEventListener("change", e => { applyProfile(e.target.value); connect(); });
   $("slAll").addEventListener("click", () => setAllShortlist(true));
   $("slNone").addEventListener("click", () => setAllShortlist(false));
+  $("reviewNew").addEventListener("click", async () => {
+    $("settings").classList.add("open");
+    await refreshDances();
+    $("shortlist").scrollIntoView({ behavior: "smooth", block: "center" });
+  });
+  $("markSeen").addEventListener("click", async () => {
+    try {
+      await api("/api/songs_seen", { method: "POST", body: "{}" });
+      status("New songs acknowledged.", "ok");
+      await refreshDances();
+      poll();
+    } catch (e) {
+      status(`Could not mark songs as seen: ${e.message}`, "err");
+    }
+  });
   $("connect").addEventListener("click", connect);
   $("refresh").addEventListener("click", refreshDances);
   ["ip", "port", "pin"].forEach(id =>
