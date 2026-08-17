@@ -291,6 +291,7 @@
         <span>launch <b id="fLaunch">—</b></span> →
         <span>first speech <b id="fSpeech">—</b></span> →
         <span>dance <b id="fDance">—</b></span> →
+        <span>goodbye <b id="fBye">—</b></span> →
         <span>complete <b id="fDone">—</b></span>
       </div>
     </div>
@@ -462,6 +463,7 @@
   const SHOW_MILESTONES = [
     ["first_speech_ms", "First speech", "fSpeech"],
     ["dance_started_ms", "Dance started", "fDance"],
+    ["goodbye_speech_ms", "Goodbye speech", "fBye"],
     ["show_complete_ms", "Show complete", "fDone"],
   ];
 
@@ -469,7 +471,7 @@
     if (!diagOn || !st) return;
     if (shownShow.at !== st.requested_at) {
       shownShow = { at: st.requested_at, seen: new Set() };
-      ["fSpeech", "fDance", "fDone"].forEach(id => { $(id).textContent = "—"; });
+      ["fSpeech", "fDance", "fBye", "fDone"].forEach(id => { $(id).textContent = "—"; });
     }
     for (const [key, label, elId] of SHOW_MILESTONES) {
       if (st[key] == null) continue;

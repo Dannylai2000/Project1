@@ -508,6 +508,7 @@ class IntroSequenceNode(Node):
             self._speak(
                 self._goodbye_text,
                 during=lambda: self._run_preset_motion(1004, 2, 0.0),
+                mark="goodbye_speech",
             )
 
             self.get_logger().info("=== STEP 6: WAVE GOODBYE ===")

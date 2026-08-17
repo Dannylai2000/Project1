@@ -307,7 +307,8 @@ class ShowRunner:
         except (OSError, json.JSONDecodeError):
             return None
         out: dict = {"requested_at": requested}
-        for event in ("script_start", "first_speech", "dance_started", "show_complete"):
+        for event in ("script_start", "first_speech", "dance_started",
+                      "goodbye_speech", "show_complete"):
             t = events.get(event)
             if isinstance(t, (int, float)) and t >= requested:
                 out[f"{event}_ms"] = round((t - requested) * 1000, 1)
