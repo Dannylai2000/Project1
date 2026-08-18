@@ -149,8 +149,12 @@ sudo ./deploy/install_cooper_service.sh --pin 2468 --always-on   # at boot
   in the panel (or opening the page served by Cooper) starts it
   automatically within a second or two. After 30 minutes without
   requests (`--idle-exit` to change) it stops itself; the next
-  connection starts it again. An open panel polls every 3 s, so the
-  server never stops while someone is actually using it.
+  connection starts it again — the panel's red OFFLINE bar has a
+  **🔄 Restart server** button for exactly this, and its 3 s polling
+  also revives the server on its own. An open panel counts as activity,
+  so the server never stops while anyone is using it. For events where
+  no auto-stop is wanted at all, install with `--idle-exit 0`:
+  starts on first use, then runs until Cooper shuts down.
 - **Always-on**: starts at boot and stays up (`Restart=on-failure`).
 
 The server also supports these directly: `--idle-exit N` (minutes,
