@@ -29,6 +29,7 @@ import hmac
 import json
 import logging
 import os
+import socket
 import subprocess
 import sys
 import threading
@@ -524,9 +525,14 @@ def resolve_messages(body: dict) -> tuple[str | None, str | None, str | None]:
 
 
 def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str,
-                 config: PanelConfig, library: LibraryWatcher):
+                 config: PanelConfig, library: LibraryWatcher,
+                 last_activity: list):
     class Handler(BaseHTTPRequestHandler):
         server_version = "CooperPanel/1.0"
+
+        def parse_request(self):
+            last_activity[0] = time.time()  # any HTTP request counts as activity
+            return super().parse_request()
 
         def _pin_ok(self) -> bool:
             """Control endpoints require the panel PIN via the X-Pin header."""
@@ -696,6 +702,11 @@ def main() -> None:
     parser.add_argument("--library-poll", type=float, default=300.0,
                         help="seconds between background checks of the "
                              "LinkCraft library for new songs")
+    parser.add_argument("--idle-exit", type=float, default=0.0,
+                        help="exit after N minutes with no HTTP requests "
+                             "(0 = run forever). With systemd socket "
+                             "activation the next connection restarts the "
+                             "server on demand")
     parser.add_argument("--log-level", default=os.getenv("LOG_LEVEL", "INFO"))
     args = parser.parse_args()
 
@@ -715,9 +726,34 @@ def main() -> None:
     config = PanelConfig(CONFIG_FILE)
     library = LibraryWatcher(node, config, args.library_poll)
     library.start_polling()
-    server = ThreadingHTTPServer(
-        (args.bind, args.port), make_handler(node, shows, args.pin, config, library)
-    )
+
+    last_activity = [time.time()]
+    handler = make_handler(node, shows, args.pin, config, library, last_activity)
+
+    # systemd socket activation: inherit the already-listening socket (fd 3)
+    # so the server only runs while someone is actually using the panel.
+    if int(os.environ.get("LISTEN_FDS", "0")) >= 1:
+        server = ThreadingHTTPServer(
+            (args.bind, args.port), handler, bind_and_activate=False
+        )
+        server.socket = socket.socket(fileno=3)
+        LOGGER.info("Started on demand via systemd socket activation")
+    else:
+        server = ThreadingHTTPServer((args.bind, args.port), handler)
+
+    if args.idle_exit > 0:
+        def idle_watch() -> None:
+            while True:
+                time.sleep(5.0)
+                idle_s = time.time() - last_activity[0]
+                if idle_s > args.idle_exit * 60 and not shows.running():
+                    LOGGER.info("No requests for %.0f min — exiting "
+                                "(next connection starts the server again)",
+                                args.idle_exit)
+                    server.shutdown()
+                    return
+        threading.Thread(target=idle_watch, name="idle-watch", daemon=True).start()
+
     LOGGER.info("Cooper Control Panel at http://%s:%d/ (PIN %s)",
                 args.bind, args.port, "enabled" if args.pin else "DISABLED")
     if not args.pin:

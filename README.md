@@ -137,6 +137,25 @@ source /opt/ros/humble/setup.bash && source ~/aimdk/install/setup.bash
 python3 cooper_panel_server.py --port 8080 --pin 2468
 ```
 
+### Install as a service (one command, two modes)
+
+```bash
+sudo ./deploy/install_cooper_service.sh --pin 2468               # on-demand
+sudo ./deploy/install_cooper_service.sh --pin 2468 --always-on   # at boot
+```
+
+- **On-demand** (default, systemd socket activation): the webserver is
+  NOT running until something connects to port 8080 — selecting a setup
+  in the panel (or opening the page served by Cooper) starts it
+  automatically within a second or two. After 30 minutes without
+  requests (`--idle-exit` to change) it stops itself; the next
+  connection starts it again. An open panel polls every 3 s, so the
+  server never stops while someone is actually using it.
+- **Always-on**: starts at boot and stays up (`Restart=on-failure`).
+
+The server also supports these directly: `--idle-exit N` (minutes,
+0 = run forever) and systemd's `LISTEN_FDS` socket activation.
+
 The **webpage** can be hosted three ways, and the ⚙ Settings dropdown
 ("Where is Cooper being used?") switches between them with one selection:
 
