@@ -436,6 +436,37 @@
       dance → goodbye → complete, measured from your click). Green is fast,
       amber is slow, red needs attention. Leave off for daily use.</p>
 
+      <h3>Show-day checklist</h3>
+      <ul>
+        <li><b>1.</b> Power Cooper on and wait for it to finish booting.</li>
+        <li><b>2.</b> Open this panel — the server status bar goes green by
+          itself. Red bar? Press <b>🔄 Restart server</b>; if it stays red,
+          check Cooper's power and Wi-Fi.</li>
+        <li><b>3.</b> Enter the PIN in ⚙ Settings (once per device), tick the
+          dance shortlist, and set the tenant name and messages.</li>
+        <li><b>4.</b> A "✨ new dance songs" banner means LinkCraft pushed new
+          songs — press <b>Review</b>, tick the ones to use, then
+          <b>Mark NEW as seen</b>.</li>
+        <li><b>5.</b> Press <b>▶ Run full show</b>. Done!</li>
+      </ul>
+
+      <h3>Taking Cooper to an outside event (portable setup)</h3>
+      <ul>
+        <li><b>1.</b> Copy <code>cooper_control_panel.html</code> onto the
+          notebook — into its Apache web root (<code>/var/www/html/</code>),
+          or simply open the file straight from a folder in the browser.</li>
+        <li><b>2.</b> Connect Cooper and the notebook to the event network,
+          and note Cooper's IP address on that network.</li>
+        <li><b>3.</b> In ⚙ Settings choose
+          <b>"Outside event — portable setup"</b>, type Cooper's event IP,
+          and press Connect. The address is remembered separately, so the
+          show-suite settings are untouched when you return.</li>
+        <li><b>4.</b> Follow the show-day checklist above. Tip: for events,
+          install Cooper's webserver with no idle timer
+          (<code>--idle-exit 0</code>) so it never stops while waiting for
+          the performance slot.</li>
+      </ul>
+
       <h3>If something is not working</h3>
       <ul>
         <li><b>Red server bar</b> — Cooper off, wrong setup selected, or
