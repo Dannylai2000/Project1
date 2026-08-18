@@ -18,6 +18,12 @@ original script:
   execute request.
 - **Faster ending**: the thank-you speech overlaps the heart gesture, and
   the goodbye speech overlaps the blow kiss, with the wave right after.
+- **Face emoji**: the eye open/close (blink) expression is played on
+  Cooper's face at each show phase — welcome, dance, and closing — via
+  the AimDK `PlayEmoji` service. Fire-and-forget: a missing service only
+  logs a warning. `--emoji-id N` selects the expression (check the AimDK
+  emoji table for the blink id on your SDK build); `--emoji-id -1`
+  disables it.
 - Post-speech grace reduced from 0.5s to 0.2s.
 
 ```bash
@@ -35,9 +41,27 @@ tablet, or laptop on the same network.
 
 Features:
 
+- **Web server availability bar** — a status strip at the top of the main
+  screen shows the selected setup, Cooper's address, and whether the
+  server is **Online** (green) or **OFFLINE** (red). While offline all
+  control buttons are disabled, and switching setups in ⚙ Settings
+  re-checks the new address immediately.
+- **❓ Help** — a button in the header opens a built-in user guide
+  explaining the purpose and usage of every field: connection setups,
+  IP/PIN, listening, show controls, message fields, the shortlist,
+  new-song alerts, diagnostics, and troubleshooting. Works offline (the
+  guide is part of the page).
 - **Dance picker** — lists every LinkCraft resource live from Cooper's
   library, play any of them on demand, or run the **full show** with the
   selected dance.
+- **Actions** — one-tap gesture buttons on the main screen: shake hand,
+  heart sign (both hands), right-hand goodbye, and blow kiss (preset
+  motions via `SetMcPresetMotion`). The registry lives in `ACTIONS` at
+  the top of `cooper_panel_server.py`, so adding a gesture or fixing a
+  motion ID is a one-line edit. Blocked while a show is running.
+  IDs follow the AimDK preset-motion table (1001 raise, 1002 wave,
+  1003 handshake, 1004 airkiss); heart, wave, and blow kiss match the
+  working show script.
 - **Listening mode switch** — Listening ON / OFF buttons (mic mute via
   `SetMute`), with the current state shown in the panel.
 - **Cooper IP address field** — in the ⚙ settings panel; defaults to the

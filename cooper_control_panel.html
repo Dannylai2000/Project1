@@ -29,6 +29,54 @@
     background: var(--accent); border: 0; color: #04202f; font-weight: 650;
     border-radius: 10px; padding: 8px 14px; font-size: 14px; cursor: pointer;
   }
+  .hbtn {
+    background: #2c3540; border: 0; color: var(--text); font-weight: 550;
+    border-radius: 10px; padding: 8px 12px; font-size: 14px; cursor: pointer;
+  }
+
+  /* Actions */
+  #actionBtns { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  #actionBtns button {
+    background: #2c3540; color: var(--text); font-weight: 550;
+    padding: 13px 10px; font-size: 15px;
+  }
+  #actionBtns .state { grid-column: 1 / -1; }
+
+  /* Web server availability bar */
+  #serverBar {
+    display: flex; align-items: center; gap: 10px; margin-top: 12px;
+    padding: 11px 14px; border-radius: 12px; font-size: 14px;
+    background: var(--panel); border: 1px solid var(--edge); color: var(--dim);
+  }
+  #serverBar.up   { border-color: var(--ok);  color: var(--text); }
+  #serverBar.up .dot   { background: var(--ok); }
+  #serverBar.down { border-color: var(--bad); color: var(--text);
+                    background: rgba(255, 107, 107, .08); }
+  #serverBar.down .dot { background: var(--bad); }
+
+  /* Help overlay */
+  #helpModal {
+    display: none; position: fixed; inset: 0; z-index: 50;
+    background: rgba(0, 0, 0, .55); padding: 24px;
+    justify-content: center; align-items: flex-start; overflow-y: auto;
+  }
+  #helpModal.open { display: flex; }
+  #helpBox {
+    background: var(--panel); border: 1px solid var(--edge); border-radius: 14px;
+    max-width: 560px; width: 100%; max-height: 85vh; overflow-y: auto;
+    padding: 20px 22px;
+  }
+  #helpBox h2 { font-size: 18px; margin: 0; }
+  .helpHead { display: flex; justify-content: space-between; align-items: center;
+              margin-bottom: 6px; }
+  #helpClose { background: none; border: 0; color: var(--dim); font-size: 20px;
+               cursor: pointer; padding: 4px 8px; }
+  #helpBox h3 { font-size: 15px; margin: 18px 0 6px; color: var(--accent); }
+  #helpBox p, #helpBox li { font-size: 14px; color: var(--text); margin: 6px 0; }
+  #helpBox ul { padding-left: 20px; margin: 4px 0; }
+  #helpBox b { color: var(--text); }
+  #helpBox code { background: #0d1116; border: 1px solid var(--edge);
+                  border-radius: 4px; padding: 0 5px; font-size: 13px; }
 
   section {
     background: var(--panel); border: 1px solid var(--edge);
@@ -169,9 +217,15 @@
 <main>
   <header>
     <h1>🤖 Cooper</h1>
+    <button id="helpBtn" class="hbtn" title="How to use this panel">❓ Help</button>
     <button id="gear" title="Change IP address, port, or PIN">⚙ Settings</button>
     <span class="conn"><span class="dot" id="connDot"></span><span id="connText">connecting…</span></span>
   </header>
+
+  <div id="serverBar" class="checking">
+    <span class="dot" id="sbarDot"></span>
+    <span id="sbarText">Checking Cooper's web server…</span>
+  </div>
 
   <section id="settings">
     <h2>Connection</h2>
@@ -218,6 +272,11 @@
       <span id="listenLabel">…</span>
     </div>
     <div id="listenHint">Off = Cooper ignores surrounding conversation.</div>
+  </section>
+
+  <section>
+    <h2>Actions</h2>
+    <div id="actionBtns"><span class="state">Connect to Cooper to load actions…</span></div>
   </section>
 
   <section>
@@ -274,6 +333,113 @@
   </details>
 
   <div id="status">Ready.</div>
+
+  <div id="helpModal">
+    <div id="helpBox">
+      <div class="helpHead">
+        <h2>❓ Cooper Control Panel — Help</h2>
+        <button id="helpClose" title="Close">✕</button>
+      </div>
+
+      <p>This panel controls <b>Cooper</b>, the One Comcentre AgiBot X2 Ultra
+      ambassador robot. All buttons talk directly to Cooper over the network.</p>
+
+      <h3>Server status bar (top of the screen)</h3>
+      <p>Shows whether <b>Cooper's web server</b> is up and running at the
+      address chosen in Settings. Green = online and ready; red = the panel
+      cannot reach Cooper — controls are disabled until the connection comes
+      back. If it stays red, check that Cooper is powered on, on the network,
+      and that the right setup is selected in ⚙ Settings.</p>
+
+      <h3>⚙ Settings — Connection</h3>
+      <ul>
+        <li><b>Where is Cooper being used?</b> — one selection covers the three
+          setups: <b>Show suite</b> (this page hosted on the optimus PC; Cooper
+          at its fixed suite address), <b>Cooper's built-in webserver</b> (page
+          served by Cooper itself; address is automatic), and <b>Outside event</b>
+          (portable setup — type Cooper's address on the event network).</li>
+        <li><b>IP address / port</b> — Cooper's network address. Locked for the
+          first two setups because the address is known; editable for events.
+          The value you type at an event is remembered separately, so returning
+          to the show suite never loses it.</li>
+        <li><b>Panel PIN</b> — required for every control action (listening,
+          dance, show, shortlist changes). Enter it once per device; it is
+          remembered. Without the PIN the panel can only view status.</li>
+        <li><b>Connect</b> — saves the settings and tests the connection.
+          Normally not needed: the panel connects by itself when opened.</li>
+      </ul>
+
+      <h3>Listening</h3>
+      <p>The switch turns Cooper's microphones on or off. <b>Off (muted)</b>
+      means Cooper ignores surrounding conversation and will not answer the
+      audience. During a show the script controls the microphone itself: muted
+      at the start, and it stays muted afterwards unless
+      "listen again after show" is ticked.</p>
+
+      <h3>Actions</h3>
+      <p>One-tap gestures Cooper performs immediately: <b>🤝 Shake hand</b>,
+      <b>🫶 Heart sign</b> (both hands), <b>👋 Right-hand goodbye</b>, and
+      <b>😘 Blow kiss</b>. They move the robot only — no speech, and the
+      microphone is not affected. The buttons are disabled while a full show
+      is running so gestures cannot interrupt the performance.</p>
+
+      <h3>Performance</h3>
+      <ul>
+        <li><b>Dance list</b> — the songs available for the show (filtered by
+          the shortlist, if one is set). ↻ reloads the list from Cooper.</li>
+        <li><b>▶ Run full show</b> — the complete sequence: wave + welcome,
+          introduction, dance, bow, clap, thank-you + heart, goodbye + blow
+          kiss, goodbye wave. Buttons lock while a show is running.</li>
+        <li><b>Play dance only</b> — just the selected dance, nothing else.
+          Does not touch the microphone.</li>
+        <li><b>listen again after show</b> — tick to have Cooper resume
+          listening when the show ends.</li>
+      </ul>
+
+      <h3>Personalize messages</h3>
+      <ul>
+        <li><b>Tenant company / guest name</b> — write <code>{name}</code>
+          anywhere in a message and Cooper speaks this name there. Blank =
+          "everyone".</li>
+        <li><b>Welcome (morning / afternoon)</b> — two versions of the welcome;
+          Cooper picks by its own clock at show time (morning before 12:00).
+          Fill only one to use it all day.</li>
+        <li><b>Introduction</b> — spoken after the welcome, before the dance.
+          Note: the "2 meters distance" safety line lives here.</li>
+        <li><b>Goodbye</b> — spoken near the end, with the blow kiss.</li>
+        <li>Every field is spoken exactly as written; blank fields fall back to
+          the built-in lines. <b>Reset to default messages</b> restores all.</li>
+      </ul>
+
+      <h3>Dance song shortlist (in ⚙ Settings)</h3>
+      <p>Tick the songs that should appear in the main dance list; untick to
+      hide. Nothing ticked = every song is shown. The shortlist is stored on
+      Cooper, so <b>all devices share the same list</b> (changing it needs the
+      PIN). When the AgiBot LinkCraft cloud pushes new songs, a
+      "✨ new dance songs" banner appears — press <b>Review</b>, tick the ones
+      you want, then <b>Mark NEW as seen</b> to clear the alert everywhere.</p>
+
+      <h3>Performance diagnostics (in ⚙ Settings)</h3>
+      <p>For checking how fast Cooper responds. When on, each button press logs
+      the time split into <b>network</b> (Wi-Fi), <b>server</b> (processing on
+      Cooper), and <b>robot</b> (Cooper's controller accepting the command),
+      with a flow diagram and a live show timeline (launch → first speech →
+      dance → goodbye → complete, measured from your click). Green is fast,
+      amber is slow, red needs attention. Leave off for daily use.</p>
+
+      <h3>If something is not working</h3>
+      <ul>
+        <li><b>Red server bar</b> — Cooper off, wrong setup selected, or
+          network issue. Check ⚙ Settings first.</li>
+        <li><b>"PIN required" / "invalid PIN"</b> — enter the correct PIN in
+          ⚙ Settings.</li>
+        <li><b>Dance list empty</b> — press ↻; if still empty, Cooper's dance
+          services may still be starting up.</li>
+        <li><b>Robot reacts slowly</b> — turn on Performance diagnostics and
+          see which part (network / server / robot) is taking the time.</li>
+      </ul>
+    </div>
+  </div>
 
   <section id="diagCard" style="display:none">
     <h2>Performance diagnostics</h2>
@@ -508,8 +674,34 @@
   }
   setDiag(diagOn);
 
+  // ── web server availability bar ────────────────────────────────────────
+  const PROFILE_LABELS = {
+    suite: "Show suite — One Comcentre",
+    robot: "Cooper's built-in webserver",
+    event: "Outside event — portable",
+  };
+  let online = false;
+
+  function updateServerBar(up) {
+    online = up;
+    const label = PROFILE_LABELS[$("profile").value] || "Custom";
+    const addr = `${$("ip").value.trim()}:${$("port").value.trim()}`;
+    $("serverBar").className = up ? "up" : "down";
+    $("sbarText").textContent = up
+      ? `${label} · Cooper server ${addr} · Online`
+      : `${label} · Cooper server ${addr} · OFFLINE — controls disabled. ` +
+        `Check that Cooper is on, or pick another setup in ⚙ Settings.`;
+    if (!up) {
+      $("runShow").disabled = true;
+      $("playDance").disabled = true;
+      $("listenSwitch").disabled = true;
+    }
+    setActionButtonsEnabled();
+  }
+
   // ── live status (polled every 3 s) ─────────────────────────────────────
   function render(s) {
+    updateServerBar(true);
     $("connDot").className = "dot on";
     $("connText").textContent = diagOn && s._client_ms != null
       ? `connected · ${Math.round(s._client_ms)} ms`
@@ -518,6 +710,7 @@
     showRunning = !!s.show_running;
     $("runShow").disabled = showRunning;
     $("playDance").disabled = showRunning;
+    setActionButtonsEnabled();
     $("runShow").textContent = showRunning ? "⏳ Show running…" : "▶ Run full show";
 
     const sw = $("listenSwitch");
@@ -548,6 +741,7 @@
     } catch (e) {
       $("connDot").className = "dot off";
       $("connText").textContent = "offline";
+      updateServerBar(false);
     }
   }
   function startPolling() {
@@ -565,10 +759,11 @@
       $("settings").classList.remove("open");
       status("Connected to Cooper.", "ok");
       startPolling();
-      await refreshDances();
+      await Promise.all([refreshDances(), loadActions()]);
     } catch (e) {
       $("connDot").className = "dot off";
       $("connText").textContent = "offline";
+      updateServerBar(false);
       status(`Cannot reach Cooper: ${e.message}`, "err");
     }
   }
@@ -658,6 +853,42 @@
     saveShortlist();
   }
 
+  // ── one-tap actions (gestures) ─────────────────────────────────────────
+  function setActionButtonsEnabled() {
+    document.querySelectorAll("#actionBtns button")
+      .forEach(b => { b.disabled = showRunning || !online; });
+  }
+
+  async function loadActions() {
+    try {
+      const { actions } = await api("/api/actions");
+      const box = $("actionBtns");
+      box.innerHTML = "";
+      for (const a of actions) {
+        const btn = document.createElement("button");
+        btn.textContent = `${a.emoji} ${a.label}`;
+        btn.addEventListener("click", async () => {
+          btn.disabled = true;
+          try {
+            const data = await api("/api/action", {
+              method: "POST", body: JSON.stringify({ action: a.key }),
+            });
+            logDiag(a.label, data);
+            status(`${a.emoji} ${a.label} — Cooper is doing it.`, "ok");
+          } catch (e) {
+            status(`${a.label} failed: ${e.message}`, "err");
+          } finally {
+            btn.disabled = showRunning || !online;
+          }
+        });
+        box.appendChild(btn);
+      }
+      setActionButtonsEnabled();
+    } catch (e) {
+      status(`Loading actions failed: ${e.message}`, "err");
+    }
+  }
+
   async function refreshDances() {
     try {
       const [dRes, sRes] = await Promise.all([
@@ -702,7 +933,7 @@
       e.target.checked = !listen;
       status(`Could not change listening: ${err.message}`, "err");
     } finally {
-      e.target.disabled = showRunning;
+      e.target.disabled = showRunning || !online;
       poll();
     }
   });
@@ -719,7 +950,7 @@
     } catch (e) {
       status(`Dance failed: ${e.message}`, "err");
     } finally {
-      $("playDance").disabled = showRunning;
+      $("playDance").disabled = showRunning || !online;
     }
   });
 
@@ -744,11 +975,16 @@
       poll();
     } catch (e) {
       status(`Show failed: ${e.message}`, "err");
-      $("runShow").disabled = false;
+      $("runShow").disabled = !online;
     }
   });
 
   $("gear").addEventListener("click", () => $("settings").classList.toggle("open"));
+  $("helpBtn").addEventListener("click", () => $("helpModal").classList.add("open"));
+  $("helpClose").addEventListener("click", () => $("helpModal").classList.remove("open"));
+  $("helpModal").addEventListener("click", e => {
+    if (e.target === $("helpModal")) $("helpModal").classList.remove("open");
+  });
   $("resetMsgs").addEventListener("click", resetMessages);
   $("profile").addEventListener("change", e => { applyProfile(e.target.value); connect(); });
   $("slAll").addEventListener("click", () => setAllShortlist(true));

@@ -45,6 +45,12 @@ try:
 except ImportError:  # pragma: no cover
     SetMute = None
 
+# PlayEmoji shows an expression on Cooper's face display (eye open/close etc.).
+try:
+    from aimdk_msgs.srv import PlayEmoji
+except ImportError:  # pragma: no cover
+    PlayEmoji = None
+
 
 LOGGER = logging.getLogger("x2_intro_sequence")
 
@@ -54,6 +60,12 @@ DEFAULT_EXECUTE_ACTION_SVC = "/aimdk_5Fmsgs/srv/ExecuteActionResource"
 DEFAULT_PRESET_MOTION_SVC  = "/aimdk_5Fmsgs/srv/SetMcPresetMotion"
 DEFAULT_SET_MC_ACTION_SVC  = "/aimdk_5Fmsgs/srv/SetMcAction"
 DEFAULT_SET_MUTE_SVC       = "/aimdk_5Fmsgs/srv/SetMute"
+DEFAULT_PLAY_EMOJI_SVC     = "/aimdk_5Fmsgs/srv/PlayEmoji"
+
+# Face expression played at each show phase (welcome, dance, closing).
+# Check the AimDK emoji table for the eye open/close (blink) expression id
+# and adjust with --emoji-id if it differs on your SDK build.
+DEFAULT_EMOJI_ID = 1
 
 # ── Dance (step 3) ────────────────────────────────────────────────────────────
 DANCE_RESOURCE_KEY = "linkcraft_resource_onnx_01KYPD7XFJ6HA7NKHY0RE6DN9K"  # APT 32
@@ -92,6 +104,7 @@ class IntroSequenceNode(Node):
         intro_text: str = INTRO_TEXT,
         goodbye_text: str = GOODBY_TEXT,
         timing_file: str = "",
+        emoji_id: int = DEFAULT_EMOJI_ID,
     ) -> None:
         super().__init__("x2_intro_sequence")
 
@@ -116,6 +129,17 @@ class IntroSequenceNode(Node):
         if not self._tts.wait_for_service(timeout_sec=10.0):
             raise RuntimeError(f"PlayTts service {tts_service!r} not available")
         self.get_logger().info("PlayTts ready")
+
+        # ── PlayEmoji (face expression) ────────────────────────────────────
+        self._emoji_id = emoji_id
+        self._emoji = None
+        if PlayEmoji is not None and emoji_id >= 0:
+            self._emoji = self.create_client(
+                PlayEmoji, DEFAULT_PLAY_EMOJI_SVC, callback_group=self._cbg
+            )
+        elif emoji_id >= 0:
+            LOGGER.warning("aimdk_msgs.srv.PlayEmoji not available in this SDK "
+                           "build — face emoji disabled")
 
         # ── SetMute (microphone on/off) ────────────────────────────────────
         self._set_mute = None
@@ -179,6 +203,36 @@ class IntroSequenceNode(Node):
             Path(self._timing_file).write_text(json.dumps(self._timing_events))
         except OSError:
             pass
+
+    # ── Face emoji ─────────────────────────────────────────────────────────
+
+    def _play_emoji(self, note: str) -> None:
+        """Show the eye open/close emoji on Cooper's face (fire-and-forget).
+
+        Never blocks the show: a missing service or a slow response only
+        logs a warning and the sequence carries on.
+        """
+        if self._emoji is None:
+            return
+        if not self._emoji.wait_for_service(timeout_sec=1.0):
+            LOGGER.warning("PlayEmoji not available — skipping face emoji (%s)", note)
+            return
+
+        req = PlayEmoji.Request()
+        with suppress(Exception):
+            self._stamp(req)
+        # Field names vary between SDK builds — set whichever exists.
+        for holder in (req, getattr(req, "emoji_req", None)):
+            if holder is None:
+                continue
+            for field in ("emoji_id", "id"):
+                if hasattr(holder, field):
+                    setattr(holder, field, int(self._emoji_id))
+            if hasattr(holder, "loop"):
+                holder.loop = True
+
+        self._emoji.call_async(req)
+        LOGGER.info("Face emoji (eye open/close) requested: %s", note)
 
     # ── Microphone mute (listening on/off) ─────────────────────────────────
 
@@ -476,6 +530,7 @@ class IntroSequenceNode(Node):
 
             # Greeting speech starts immediately; the wave overlaps it.
             self.get_logger().info("=== STEP 1: GREETING + WAVE ===")
+            self._play_emoji("welcome")
             self._speak(
                 self._greeting_text,
                 during=lambda: self._run_preset_motion(1002, 2, 0.0),
@@ -486,6 +541,7 @@ class IntroSequenceNode(Node):
             self._speak(self._intro_text)
 
             self.get_logger().info("=== STEP 3: DANCE ===")
+            self._play_emoji("dance")
             self._run_linkcraft_action(self._dance_key, self._dance_duration_s)
 
             self.get_logger().info("=== STEP 3a: Bow ===")
@@ -496,6 +552,7 @@ class IntroSequenceNode(Node):
 
             # Thank-you speech and heart gesture play together.
             self.get_logger().info("=== STEP 4: THANK YOU + HEART ===")
+            self._play_emoji("closing")
             self._speak(
                 THANK_YOU_TEXT,
                 during=lambda: self._run_preset_motion(
@@ -550,6 +607,9 @@ def main() -> None:
     parser.add_argument("--timing-file", default="",
                         help="write show milestone timestamps (JSON) here "
                              "for the panel's performance diagnostics")
+    parser.add_argument("--emoji-id", type=int, default=DEFAULT_EMOJI_ID,
+                        help="face expression id played at welcome, dance, and "
+                             "closing (eye open/close); -1 disables")
     parser.add_argument("--log-level", default=os.getenv("LOG_LEVEL", "INFO"))
     args = parser.parse_args()
 
@@ -570,6 +630,7 @@ def main() -> None:
         intro_text=args.intro_text,
         goodbye_text=args.goodbye_text,
         timing_file=args.timing_file,
+        emoji_id=args.emoji_id,
     )
     executor = MultiThreadedExecutor()
     executor.add_node(node)

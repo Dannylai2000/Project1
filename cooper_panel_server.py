@@ -38,7 +38,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import rclpy
-from aimdk_msgs.srv import ExecuteActionResource, GetRobotResources
+from aimdk_msgs.msg import CommonState, McControlArea, McPresetMotion, RequestHeader
+from aimdk_msgs.srv import ExecuteActionResource, GetRobotResources, SetMcPresetMotion
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
@@ -54,6 +55,17 @@ LOGGER = logging.getLogger("cooper_panel")
 DEFAULT_GET_RESOURCES_SVC  = "/aimdk_5Fmsgs/srv/GetRobotResources"
 DEFAULT_EXECUTE_ACTION_SVC = "/aimdk_5Fmsgs/srv/ExecuteActionResource"
 DEFAULT_SET_MUTE_SVC       = "/aimdk_5Fmsgs/srv/SetMute"
+DEFAULT_PRESET_MOTION_SVC  = "/aimdk_5Fmsgs/srv/SetMcPresetMotion"
+
+# One-tap gestures for the panel's Actions card. Motion/area IDs follow the
+# AimDK preset-motion table (1001 raise, 1002 wave, 1003 handshake,
+# 1004 airkiss); heart, wave, and blow kiss match the working show script.
+ACTIONS = {
+    "shake_hand":   {"label": "Shake hand",         "emoji": "🤝", "motion": 1003, "area": 2},
+    "heart":        {"label": "Heart sign",          "emoji": "🫶", "motion": 1007, "area": 3},
+    "wave_goodbye": {"label": "Right-hand goodbye",  "emoji": "👋", "motion": 1002, "area": 2},
+    "blow_kiss":    {"label": "Blow kiss",           "emoji": "😘", "motion": 1004, "area": 2},
+}
 
 PANEL_HTML_FILE = Path(__file__).resolve().parent / "cooper_control_panel.html"
 SHOW_SCRIPT     = Path(__file__).resolve().parent / "x2_showroom_demo.py"
@@ -102,6 +114,9 @@ class CooperPanelNode(Node):
             self._set_mute = self.create_client(
                 SetMute, mute_service, callback_group=self._cbg
             )
+        self._preset_motion = self.create_client(
+            SetMcPresetMotion, DEFAULT_PRESET_MOTION_SVC, callback_group=self._cbg
+        )
 
         # Last listening state we set (None until first change from the panel).
         self.listening_state: bool | None = None
@@ -200,6 +215,46 @@ class CooperPanelNode(Node):
         if code not in (None, 0) or any(w in msg.lower() for w in ("fail", "error", "reject")):
             raise RuntimeError(f"dance rejected (code={code}): {msg}")
         return {"code": code, "message": msg, "timing": timing}
+
+    def run_preset_motion(self, motion_id: int, area_id: int) -> dict:
+        """Trigger a preset motion (gesture). Returns a timing breakdown."""
+        timing: dict = {}
+        t0 = time.perf_counter()
+        if not self._preset_motion.wait_for_service(timeout_sec=5.0):
+            raise RuntimeError("SetMcPresetMotion service not available")
+        timing["service_wait_ms"] = round((time.perf_counter() - t0) * 1000, 1)
+
+        req = SetMcPresetMotion.Request()
+        req.header         = RequestHeader()
+        req.motion         = McPresetMotion()
+        req.area           = McControlArea()
+        req.motion.value   = int(motion_id)
+        req.area.value     = int(area_id)
+        req.interrupt      = False
+        req.ani_path       = ""
+        req.play_timestamp = 0
+
+        response = None
+        t0 = time.perf_counter()
+        for _ in range(8):
+            with suppress(Exception):
+                req.header.stamp = self.get_clock().now().to_msg()
+            future = self._preset_motion.call_async(req)
+            done = threading.Event()
+            future.add_done_callback(lambda _: done.set())
+            if done.wait(0.25) and future.done():
+                response = future.result()
+                break
+        if response is None:
+            raise RuntimeError("SetMcPresetMotion timed out")
+        timing["robot_ack_ms"] = round((time.perf_counter() - t0) * 1000, 1)
+
+        code  = int(response.response.header.code)
+        state = int(response.response.state.value)
+        if code == 0 or state in (CommonState.SUCCESS, CommonState.RUNNING):
+            LOGGER.info("Preset motion %d/%d accepted", motion_id, area_id)
+            return timing
+        raise RuntimeError(f"motion rejected (code={code} state={state})")
 
     def set_listening(self, listen: bool) -> dict:
         """Unmute (listen=True) or mute (listen=False) Cooper's microphones.
@@ -533,6 +588,11 @@ def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str,
                     return self._send_json({"ok": False, "error": str(exc)}, 502)
             if self.path == "/api/shortlist":
                 return self._send_json({"ok": True, "shortlist": config.get_shortlist()})
+            if self.path == "/api/actions":
+                return self._send_json({"ok": True, "actions": [
+                    {"key": k, "label": a["label"], "emoji": a["emoji"]}
+                    for k, a in ACTIONS.items()
+                ]})
             return self._send_json({"ok": False, "error": "not found"}, 404)
 
         def do_POST(self):
@@ -568,6 +628,18 @@ def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str,
 
                 if self.path == "/api/songs_seen":
                     return self._send_json({"ok": True, "seen": library.mark_all_seen()})
+
+                if self.path == "/api/action":
+                    action = ACTIONS.get(str(body.get("action") or ""))
+                    if action is None:
+                        return self._send_json({"ok": False, "error": "unknown action"}, 400)
+                    if shows.running():
+                        return self._send_json(
+                            {"ok": False, "error": "a show is running — wait for it to finish"}, 409)
+                    timing = node.run_preset_motion(action["motion"], action["area"])
+                    timing["server_total_ms"] = server_ms()
+                    return self._send_json({"ok": True, "action": action["label"],
+                                            "timing": timing})
 
                 if self.path == "/api/show":
                     greeting, intro, goodbye = resolve_messages(body)
