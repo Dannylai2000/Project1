@@ -58,10 +58,10 @@ DEFAULT_SET_MUTE_SVC       = "/aimdk_5Fmsgs/srv/SetMute"
 DEFAULT_PRESET_MOTION_SVC  = "/aimdk_5Fmsgs/srv/SetMcPresetMotion"
 
 # One-tap gestures for the panel's Actions card. Motion/area IDs follow the
-# AimDK preset-motion table; heart, wave, and blow kiss are the same IDs the
-# show script uses. VERIFY shake_hand's ID on the robot before relying on it.
+# AimDK preset-motion table (1001 raise, 1002 wave, 1003 handshake,
+# 1004 airkiss); heart, wave, and blow kiss match the working show script.
 ACTIONS = {
-    "shake_hand":   {"label": "Shake hand",         "emoji": "🤝", "motion": 1001, "area": 2},
+    "shake_hand":   {"label": "Shake hand",         "emoji": "🤝", "motion": 1003, "area": 2},
     "heart":        {"label": "Heart sign",          "emoji": "🫶", "motion": 1007, "area": 3},
     "wave_goodbye": {"label": "Right-hand goodbye",  "emoji": "👋", "motion": 1002, "area": 2},
     "blow_kiss":    {"label": "Blow kiss",           "emoji": "😘", "motion": 1004, "area": 2},

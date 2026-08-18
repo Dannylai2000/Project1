@@ -53,8 +53,8 @@ Features:
   motions via `SetMcPresetMotion`). The registry lives in `ACTIONS` at
   the top of `cooper_panel_server.py`, so adding a gesture or fixing a
   motion ID is a one-line edit. Blocked while a show is running.
-  ⚠️ Verify the shake-hand motion ID (1001) against the AimDK
-  preset-motion table on the robot — the other three IDs come from the
+  IDs follow the AimDK preset-motion table (1001 raise, 1002 wave,
+  1003 handshake, 1004 airkiss); heart, wave, and blow kiss match the
   working show script.
 - **Listening mode switch** — Listening ON / OFF buttons (mic mute via
   `SetMute`), with the current state shown in the panel.
