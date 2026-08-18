@@ -47,7 +47,10 @@
     display: flex; align-items: center; gap: 10px; margin-top: 12px;
     padding: 11px 14px; border-radius: 12px; font-size: 14px;
     background: var(--panel); border: 1px solid var(--edge); color: var(--dim);
+    flex-wrap: wrap;
   }
+  #serverBar span:nth-child(2) { flex: 1; min-width: 200px; }
+  #sbarRetry { white-space: nowrap; }
   #serverBar.up   { border-color: var(--ok);  color: var(--text); }
   #serverBar.up .dot   { background: var(--ok); }
   #serverBar.down { border-color: var(--bad); color: var(--text);
@@ -225,6 +228,7 @@
   <div id="serverBar" class="checking">
     <span class="dot" id="sbarDot"></span>
     <span id="sbarText">Checking Cooper's web server…</span>
+    <button id="sbarRetry" class="hbtn" style="display:none">🔄 Restart server</button>
   </div>
 
   <section id="settings">
@@ -348,8 +352,13 @@
       <p>Shows whether <b>Cooper's web server</b> is up and running at the
       address chosen in Settings. Green = online and ready; red = the panel
       cannot reach Cooper — controls are disabled until the connection comes
-      back. If it stays red, check that Cooper is powered on, on the network,
-      and that the right setup is selected in ⚙ Settings.</p>
+      back. When red, press <b>🔄 Restart server</b>: on Cooper's on-demand
+      setup this starts the web server again within a couple of seconds (the
+      panel also keeps retrying by itself every 3 seconds). If it stays red,
+      check that Cooper is powered on, on the network, and that the right
+      setup is selected in ⚙ Settings. While a panel is open, the server
+      never shuts itself down — its idle timer only runs when no panel is
+      connected anywhere.</p>
 
       <h3>⚙ Settings — Connection</h3>
       <ul>
@@ -687,10 +696,11 @@
     const label = PROFILE_LABELS[$("profile").value] || "Custom";
     const addr = `${$("ip").value.trim()}:${$("port").value.trim()}`;
     $("serverBar").className = up ? "up" : "down";
+    $("sbarRetry").style.display = up ? "none" : "inline-block";
     $("sbarText").textContent = up
       ? `${label} · Cooper server ${addr} · Online`
       : `${label} · Cooper server ${addr} · OFFLINE — controls disabled. ` +
-        `Check that Cooper is on, or pick another setup in ⚙ Settings.`;
+        `Press Restart server, or check ⚙ Settings and Cooper's power.`;
     if (!up) {
       $("runShow").disabled = true;
       $("playDance").disabled = true;
@@ -980,6 +990,25 @@
   });
 
   $("gear").addEventListener("click", () => $("settings").classList.toggle("open"));
+  $("sbarRetry").addEventListener("click", async () => {
+    $("sbarRetry").disabled = true;
+    $("sbarText").textContent = "Waking Cooper's web server…";
+    try {
+      // The connection attempt itself starts an on-demand (socket-activated)
+      // server; retry briefly to cover its 1-2s startup.
+      for (let i = 0; i < 3; i++) {
+        try { await api("/api/status"); break; }
+        catch (e) { if (i === 2) throw e; await new Promise(r => setTimeout(r, 1500)); }
+      }
+      await connect();
+      status("Cooper's web server is up again.", "ok");
+    } catch (e) {
+      updateServerBar(false);
+      status(`Server still unreachable: ${e.message}`, "err");
+    } finally {
+      $("sbarRetry").disabled = false;
+    }
+  });
   $("helpBtn").addEventListener("click", () => $("helpModal").classList.add("open"));
   $("helpClose").addEventListener("click", () => $("helpModal").classList.remove("open"));
   $("helpModal").addEventListener("click", e => {
