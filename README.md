@@ -48,6 +48,14 @@ Features:
 - **Dance picker** — lists every LinkCraft resource live from Cooper's
   library, play any of them on demand, or run the **full show** with the
   selected dance.
+- **Actions** — one-tap gesture buttons on the main screen: shake hand,
+  heart sign (both hands), right-hand goodbye, and blow kiss (preset
+  motions via `SetMcPresetMotion`). The registry lives in `ACTIONS` at
+  the top of `cooper_panel_server.py`, so adding a gesture or fixing a
+  motion ID is a one-line edit. Blocked while a show is running.
+  ⚠️ Verify the shake-hand motion ID (1001) against the AimDK
+  preset-motion table on the robot — the other three IDs come from the
+  working show script.
 - **Listening mode switch** — Listening ON / OFF buttons (mic mute via
   `SetMute`), with the current state shown in the panel.
 - **Cooper IP address field** — in the ⚙ settings panel; defaults to the
