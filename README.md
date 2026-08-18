@@ -18,6 +18,12 @@ original script:
   execute request.
 - **Faster ending**: the thank-you speech overlaps the heart gesture, and
   the goodbye speech overlaps the blow kiss, with the wave right after.
+- **Face emoji**: the eye open/close (blink) expression is played on
+  Cooper's face at each show phase — welcome, dance, and closing — via
+  the AimDK `PlayEmoji` service. Fire-and-forget: a missing service only
+  logs a warning. `--emoji-id N` selects the expression (check the AimDK
+  emoji table for the blink id on your SDK build); `--emoji-id -1`
+  disables it.
 - Post-speech grace reduced from 0.5s to 0.2s.
 
 ```bash
