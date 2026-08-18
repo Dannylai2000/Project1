@@ -2,9 +2,12 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>Cooper Control Panel</title>
 <link rel="icon" id="favicon" href="favicon.png">
+<link rel="apple-touch-icon" href="favicon.png">
 <style>
   :root {
     --bg: #101418; --panel: #1a2027; --edge: #2c3540;
@@ -12,12 +15,30 @@
     --accent: #35b6ff; --ok: #3ecf8e; --bad: #ff6b6b;
   }
   * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  button, select, input, textarea, .slider, summary { touch-action: manipulation; }
   body {
-    margin: 0; padding: 20px; background: var(--bg); color: var(--text);
+    margin: 0; background: var(--bg); color: var(--text);
     font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
     display: flex; justify-content: center;
+    padding: calc(20px + env(safe-area-inset-top, 0px))
+             calc(20px + env(safe-area-inset-right, 0px))
+             calc(20px + env(safe-area-inset-bottom, 0px))
+             calc(20px + env(safe-area-inset-left, 0px));
   }
   main { width: 100%; max-width: 480px; }
+
+  /* iPad mini (8.3") and wider: two-column layout so the show controls and
+     the message editor sit side by side instead of one long scroll. */
+  @media (min-width: 700px) {
+    main {
+      max-width: 1000px;
+      display: grid; grid-template-columns: 1fr 1fr;
+      column-gap: 16px; align-items: start;
+    }
+    header, #serverBar, #settings, #status, #diagCard { grid-column: 1 / -1; }
+    #helpBox { max-width: 660px; }
+  }
 
   /* Header */
   header { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
@@ -200,7 +221,8 @@
   textarea {
     width: 100%; min-height: 58px; resize: vertical;
     background: #0d1116; color: var(--text); border: 1px solid var(--edge);
-    border-radius: 8px; padding: 10px 12px; font-size: 15px; font-family: inherit;
+    /* 16px stops iPad Safari from auto-zooming when a field gets focus */
+    border-radius: 8px; padding: 10px 12px; font-size: 16px; font-family: inherit;
   }
   .hint { color: var(--dim); font-size: 12.5px; margin-top: 10px; }
   .hint code { background: #0d1116; border: 1px solid var(--edge);
@@ -435,6 +457,37 @@
       with a flow diagram and a live show timeline (launch → first speech →
       dance → goodbye → complete, measured from your click). Green is fast,
       amber is slow, red needs attention. Leave off for daily use.</p>
+
+      <h3>Show-day checklist</h3>
+      <ul>
+        <li><b>1.</b> Power Cooper on and wait for it to finish booting.</li>
+        <li><b>2.</b> Open this panel — the server status bar goes green by
+          itself. Red bar? Press <b>🔄 Restart server</b>; if it stays red,
+          check Cooper's power and Wi-Fi.</li>
+        <li><b>3.</b> Enter the PIN in ⚙ Settings (once per device), tick the
+          dance shortlist, and set the tenant name and messages.</li>
+        <li><b>4.</b> A "✨ new dance songs" banner means LinkCraft pushed new
+          songs — press <b>Review</b>, tick the ones to use, then
+          <b>Mark NEW as seen</b>.</li>
+        <li><b>5.</b> Press <b>▶ Run full show</b>. Done!</li>
+      </ul>
+
+      <h3>Taking Cooper to an outside event (portable setup)</h3>
+      <ul>
+        <li><b>1.</b> Copy <code>cooper_control_panel.html</code> onto the
+          notebook — into its Apache web root (<code>/var/www/html/</code>),
+          or simply open the file straight from a folder in the browser.</li>
+        <li><b>2.</b> Connect Cooper and the notebook to the event network,
+          and note Cooper's IP address on that network.</li>
+        <li><b>3.</b> In ⚙ Settings choose
+          <b>"Outside event — portable setup"</b>, type Cooper's event IP,
+          and press Connect. The address is remembered separately, so the
+          show-suite settings are untouched when you return.</li>
+        <li><b>4.</b> Follow the show-day checklist above. Tip: for events,
+          install Cooper's webserver with no idle timer
+          (<code>--idle-exit 0</code>) so it never stops while waiting for
+          the performance slot.</li>
+      </ul>
 
       <h3>If something is not working</h3>
       <ul>
