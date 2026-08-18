@@ -35,6 +35,16 @@ tablet, or laptop on the same network.
 
 Features:
 
+- **Web server availability bar** — a status strip at the top of the main
+  screen shows the selected setup, Cooper's address, and whether the
+  server is **Online** (green) or **OFFLINE** (red). While offline all
+  control buttons are disabled, and switching setups in ⚙ Settings
+  re-checks the new address immediately.
+- **❓ Help** — a button in the header opens a built-in user guide
+  explaining the purpose and usage of every field: connection setups,
+  IP/PIN, listening, show controls, message fields, the shortlist,
+  new-song alerts, diagnostics, and troubleshooting. Works offline (the
+  guide is part of the page).
 - **Dance picker** — lists every LinkCraft resource live from Cooper's
   library, play any of them on demand, or run the **full show** with the
   selected dance.
