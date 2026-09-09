@@ -350,6 +350,16 @@
     <summary>Personalize messages</summary>
     <div class="inner">
       <div class="field">
+        <label for="msgGroup">Message group — each group keeps its own full set
+          of messages (e.g. Show suite, Event)</label>
+        <div class="row">
+          <select id="msgGroup"></select>
+          <button class="secondary" id="mgNew" title="Create a new group (copies the current messages)">＋ New</button>
+          <button class="secondary" id="mgRename" title="Rename this group">✏️</button>
+          <button class="secondary" id="mgDelete" title="Delete this group">🗑</button>
+        </div>
+      </div>
+      <div class="field">
         <label for="guestName">Tenant company / guest name</label>
         <input type="text" id="guestName" placeholder="e.g. ABC Company, Mr. Chan — blank = “everyone”">
       </div>
@@ -459,6 +469,13 @@
 
       <h3>Personalize messages</h3>
       <ul>
+        <li><b>Message group</b> — a group is a complete set of the messages
+          below, and you can keep one per occasion: "Show suite" and "Event"
+          exist from the start, and <b>＋ New</b> creates your own (it copies
+          the current texts as a starting point; ✏️ renames, 🗑 deletes).
+          Pick a group in the dropdown and the show speaks that group's
+          messages — switch "Show suite" ↔ "Event" with one selection, no
+          retyping.</li>
         <li><b>Tenant company / guest name</b> — write <code>{name}</code>
           anywhere in a message and Cooper speaks this name there. Blank =
           "everyone".</li>
@@ -647,25 +664,122 @@
   };
   const MSG_FIELDS = ["guestName", "greetAM", "greetPM", "introMsg", "goodbyeMsg"];
 
-  function loadMessages() {
-    for (const id of MSG_FIELDS) {
-      const saved = localStorage.getItem("cooper_" + id);
-      $(id).value = saved !== null ? saved : (DEFAULT_MSGS[id] || "");
-    }
+  // Message groups: named sets of all five texts (e.g. "Show suite", "Event").
+  // The fields always show the ACTIVE group; the show speaks whatever the
+  // fields hold, so switching groups switches the whole script.
+  let msgGroups = {};
+  let activeGroup = "";
+
+  const defaultMsgSet = () => {
+    const set = {};
+    for (const id of MSG_FIELDS) set[id] = DEFAULT_MSGS[id] || "";
+    return set;
+  };
+
+  function saveMsgGroups() {
+    localStorage.setItem("cooper_msg_groups",
+      JSON.stringify({ groups: msgGroups, active: activeGroup }));
   }
+
+  function loadMsgGroups() {
+    try {
+      const s = JSON.parse(localStorage.getItem("cooper_msg_groups") || "null");
+      if (s && s.groups && Object.keys(s.groups).length) {
+        msgGroups = s.groups;
+        activeGroup = s.active in s.groups ? s.active : Object.keys(s.groups)[0];
+        return;
+      }
+    } catch {}
+    // First run: seed the two standard groups, migrating any texts saved by
+    // the previous single-set version into "Show suite".
+    const legacy = defaultMsgSet();
+    for (const id of MSG_FIELDS) {
+      const v = localStorage.getItem("cooper_" + id);
+      if (v !== null) { legacy[id] = v; localStorage.removeItem("cooper_" + id); }
+    }
+    msgGroups = { "Show suite": legacy, "Event": defaultMsgSet() };
+    activeGroup = "Show suite";
+    saveMsgGroups();
+  }
+
+  function renderGroupSelect() {
+    const sel = $("msgGroup");
+    sel.innerHTML = "";
+    for (const name of Object.keys(msgGroups)) {
+      const opt = document.createElement("option");
+      opt.value = name;
+      opt.textContent = name;
+      sel.appendChild(opt);
+    }
+    sel.value = activeGroup;
+  }
+
+  function loadGroupToFields() {
+    const g = msgGroups[activeGroup] || {};
+    for (const id of MSG_FIELDS) $(id).value = g[id] ?? (DEFAULT_MSGS[id] || "");
+  }
+
   function resetMessages() {
-    for (const id of MSG_FIELDS) {
-      $(id).value = DEFAULT_MSGS[id] || "";
-      localStorage.removeItem("cooper_" + id);
-    }
-    status("Messages reset to defaults.", "ok");
+    msgGroups[activeGroup] = defaultMsgSet();
+    saveMsgGroups();
+    loadGroupToFields();
+    status(`Group "${activeGroup}" reset to the default messages.`, "ok");
   }
+
   document.addEventListener("input", e => {
     if (MSG_FIELDS.includes(e.target.id)) {
-      localStorage.setItem("cooper_" + e.target.id, e.target.value);
+      (msgGroups[activeGroup] = msgGroups[activeGroup] || defaultMsgSet())
+        [e.target.id] = e.target.value;
+      saveMsgGroups();
     }
   });
-  loadMessages();
+
+  loadMsgGroups();
+  renderGroupSelect();
+  loadGroupToFields();
+
+  $("msgGroup").addEventListener("change", e => {
+    activeGroup = e.target.value;
+    saveMsgGroups();
+    loadGroupToFields();
+    status(`Message group "${activeGroup}" is now active.`, "ok");
+  });
+  $("mgNew").addEventListener("click", () => {
+    const name = (prompt("Name for the new message group (e.g. VIP tour):") || "").trim();
+    if (!name) return;
+    if (msgGroups[name]) { status(`A group called "${name}" already exists.`, "err"); return; }
+    // Start the new group as a copy of the current one, then tweak.
+    msgGroups[name] = { ...(msgGroups[activeGroup] || defaultMsgSet()) };
+    activeGroup = name;
+    saveMsgGroups();
+    renderGroupSelect();
+    loadGroupToFields();
+    status(`Group "${name}" created (copied from the previous group).`, "ok");
+  });
+  $("mgRename").addEventListener("click", () => {
+    const name = (prompt("New name for this message group:", activeGroup) || "").trim();
+    if (!name || name === activeGroup) return;
+    if (msgGroups[name]) { status(`A group called "${name}" already exists.`, "err"); return; }
+    msgGroups[name] = msgGroups[activeGroup];
+    delete msgGroups[activeGroup];
+    activeGroup = name;
+    saveMsgGroups();
+    renderGroupSelect();
+    status(`Group renamed to "${name}".`, "ok");
+  });
+  $("mgDelete").addEventListener("click", () => {
+    if (Object.keys(msgGroups).length <= 1) {
+      status("Cannot delete the last message group.", "err");
+      return;
+    }
+    if (!confirm(`Delete the message group "${activeGroup}"?`)) return;
+    delete msgGroups[activeGroup];
+    activeGroup = Object.keys(msgGroups)[0];
+    saveMsgGroups();
+    renderGroupSelect();
+    loadGroupToFields();
+    status(`Group deleted — "${activeGroup}" is now active.`, "ok");
+  });
 
   function saveSettings() {
     localStorage.setItem("cooper_pin", $("pin").value);
