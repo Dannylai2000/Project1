@@ -65,6 +65,7 @@ ACTIONS = {
     "shake_hand":   {"label": "Shake hand",         "emoji": "🤝", "motion": 1003, "area": 2},
     "heart":        {"label": "Heart sign",          "emoji": "🫶", "motion": 1007, "area": 3},
     "wave_goodbye": {"label": "Right-hand goodbye",  "emoji": "👋", "motion": 1002, "area": 2},
+    "wave_left":    {"label": "Left-hand wave",      "emoji": "🖐️", "motion": 1002, "area": 1},
     "blow_kiss":    {"label": "Blow kiss",           "emoji": "😘", "motion": 1004, "area": 2},
 }
 
@@ -316,6 +317,7 @@ class ShowRunner:
         greeting: str | None = None,
         intro: str | None = None,
         goodbye: str | None = None,
+        dance_duration: float | None = None,
     ) -> dict:
         t0 = time.perf_counter()
         with self._lock:
@@ -332,6 +334,8 @@ class ShowRunner:
                 cmd += ["--intro-text", intro]
             if goodbye:
                 cmd += ["--goodbye-text", goodbye]
+            if dance_duration is not None:
+                cmd += ["--dance-duration", str(dance_duration)]
             cmd += ["--timing-file", str(TIMING_FILE)]
             with suppress(OSError):
                 TIMING_FILE.unlink()
@@ -406,6 +410,44 @@ class PanelConfig:
             data["shortlist"] = cleaned
             self._path.write_text(json.dumps(data, indent=2))
         LOGGER.info("Shortlist saved: %d song(s)", len(cleaned))
+        return cleaned
+
+    MAX_DANCE_TIME_S = 600.0
+
+    def get_dance_times(self) -> dict:
+        """Per-song play time in seconds ({} entries mean the show default)."""
+        with self._lock:
+            try:
+                data = json.loads(self._path.read_text())
+            except (OSError, json.JSONDecodeError):
+                return {}
+        times = data.get("dance_times", {})
+        if not isinstance(times, dict):
+            return {}
+        out = {}
+        for k, v in times.items():
+            with suppress(TypeError, ValueError):
+                out[str(k)] = float(v)
+        return out
+
+    def set_dance_times(self, times) -> dict:
+        if not isinstance(times, dict):
+            raise ValueError("times must be an object of {resource_key: seconds}")
+        cleaned = {}
+        for k, v in list(times.items())[: self.MAX_KEYS]:
+            k = str(k).strip()[: self.MAX_KEY_LEN]
+            if not k:
+                continue
+            with suppress(TypeError, ValueError):
+                cleaned[k] = min(max(float(v), 0.0), self.MAX_DANCE_TIME_S)
+        with self._lock:
+            try:
+                data = json.loads(self._path.read_text())
+            except (OSError, json.JSONDecodeError):
+                data = {}
+            data["dance_times"] = cleaned
+            self._path.write_text(json.dumps(data, indent=2))
+        LOGGER.info("Dance play times saved for %d song(s)", len(cleaned))
         return cleaned
 
     def get_seen_songs(self) -> list[str] | None:
@@ -593,7 +635,9 @@ def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str,
                 except Exception as exc:
                     return self._send_json({"ok": False, "error": str(exc)}, 502)
             if self.path == "/api/shortlist":
-                return self._send_json({"ok": True, "shortlist": config.get_shortlist()})
+                return self._send_json({"ok": True,
+                                        "shortlist": config.get_shortlist(),
+                                        "times": config.get_dance_times()})
             if self.path == "/api/actions":
                 return self._send_json({"ok": True, "actions": [
                     {"key": k, "label": a["label"], "emoji": a["emoji"]}
@@ -629,8 +673,15 @@ def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str,
                     return self._send_json({"ok": True, "listening": listen, "timing": timing})
 
                 if self.path == "/api/shortlist":
-                    saved = config.set_shortlist(body.get("shortlist"))
-                    return self._send_json({"ok": True, "shortlist": saved})
+                    result = {}
+                    if "shortlist" in body:
+                        result["shortlist"] = config.set_shortlist(body.get("shortlist"))
+                    if "times" in body:
+                        result["times"] = config.set_dance_times(body.get("times"))
+                    if not result:
+                        return self._send_json(
+                            {"ok": False, "error": "missing 'shortlist' or 'times'"}, 400)
+                    return self._send_json({"ok": True, **result})
 
                 if self.path == "/api/songs_seen":
                     return self._send_json({"ok": True, "seen": library.mark_all_seen()})
@@ -649,12 +700,18 @@ def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str,
 
                 if self.path == "/api/show":
                     greeting, intro, goodbye = resolve_messages(body)
+                    dance_key = str(body.get("dance_key") or "") or None
+                    # Per-song play time from the shared config (None = default).
+                    dance_duration = None
+                    if dance_key:
+                        dance_duration = config.get_dance_times().get(dance_key)
                     timing = shows.start(
-                        dance_key=str(body.get("dance_key") or "") or None,
+                        dance_key=dance_key,
                         unmute_after=bool(body.get("unmute_after", False)),
                         greeting=greeting,
                         intro=intro,
                         goodbye=goodbye,
+                        dance_duration=dance_duration,
                     )
                     timing["server_total_ms"] = server_ms()
                     return self._send_json({"ok": True, "show_running": True,

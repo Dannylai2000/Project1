@@ -55,13 +55,23 @@ Features:
   library, play any of them on demand, or run the **full show** with the
   selected dance.
 - **Actions** — one-tap gesture buttons on the main screen: shake hand,
-  heart sign (both hands), right-hand goodbye, and blow kiss (preset
-  motions via `SetMcPresetMotion`). The registry lives in `ACTIONS` at
-  the top of `cooper_panel_server.py`, so adding a gesture or fixing a
-  motion ID is a one-line edit. Blocked while a show is running.
-  IDs follow the AimDK preset-motion table (1001 raise, 1002 wave,
-  1003 handshake, 1004 airkiss); heart, wave, and blow kiss match the
-  working show script.
+  heart sign (both hands), right-hand goodbye, left-hand wave, and blow
+  kiss (preset motions via `SetMcPresetMotion`). The registry lives in
+  `ACTIONS` at the top of `cooper_panel_server.py`, so adding a gesture
+  or fixing a motion ID is a one-line edit. Blocked while a show is
+  running. IDs follow the AimDK preset-motion table (1001 raise,
+  1002 wave, 1003 handshake, 1004 airkiss); heart, wave, and blow kiss
+  match the working show script. ⚠️ Left-hand wave uses area 1 —
+  verify the left-arm area id on the robot (right arm is area 2).
+- **Secondary (backup) robot** — ⚙ Settings holds a second X2's IP
+  address and an Active robot selector; if the active robot fails, the
+  red status bar offers "🤖 Use backup robot" to continue the
+  performance on the other one. Both robots run the same panel server;
+  each keeps its own shortlist/play-time config.
+- **Per-dance play time** — the seconds box beside each song in the
+  shortlist sets how long the full show waits during that dance
+  (blank = 30 s default, 0 = don't wait). Stored on the robot
+  (`dance_times` in `cooper_panel_config.json`), shared by all devices.
 - **Listening mode switch** — Listening ON / OFF buttons (mic mute via
   `SetMute`), with the current state shown in the panel.
 - **Cooper IP address field** — in the ⚙ settings panel; defaults to the

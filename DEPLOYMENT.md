@@ -79,6 +79,19 @@ Browse to `http://192.168.68.54:8080` from any device and check, in order:
 6. Panel unreachable from *other* devices but fine on Cooper? Open the
    firewall: `sudo ufw allow 8080`.
 
+### 5. Optional: secondary (backup) robot
+
+To have a second X2 ready to continue the performance if the first one
+fails, repeat steps 1–4 on the backup robot (same repo, same installer —
+use the **same PIN** so devices don't need a second code). Then, on each
+panel device, open ⚙ Settings and enter the backup robot's IP in
+**Secondary robot IP address**. When the active robot's status bar goes
+red, press **🤖 Use backup robot** on the bar (or use the Active robot
+selector) to carry on with the other robot.
+
+Note: the shortlist, per-dance play times, and new-song alerts are stored
+on each robot, so configure them once per robot.
+
 ## B. optimus — show-suite Apache (optional page host)
 
 On the Ubuntu PC `optimus` (192.168.68.51, Apache on port 8080):

@@ -130,6 +130,12 @@
   #shortlist label { display: flex; gap: 9px; align-items: center; cursor: pointer; }
   #shortlist input[type=checkbox] { width: 17px; height: 17px; accent-color: var(--accent); }
   #shortlist .empty { color: var(--dim); }
+  #shortlist .songTime {
+    width: 64px; margin-left: auto; padding: 4px 8px; font-size: 14px;
+    background: #0d1116; border: 1px solid var(--edge); border-radius: 6px;
+    color: var(--text); text-align: right;
+  }
+  #shortlist .songTimeUnit { color: var(--dim); font-size: 13px; }
   .pill {
     background: var(--warn); color: #3a2600; border-radius: 5px;
     font-size: 11px; font-weight: 750; padding: 1px 7px; margin-left: auto;
@@ -251,6 +257,7 @@
     <span class="dot" id="sbarDot"></span>
     <span id="sbarText">Checking Cooper's web server…</span>
     <button id="sbarRetry" class="hbtn" style="display:none">🔄 Restart server</button>
+    <button id="sbarSwitch" class="hbtn" style="display:none">🤖 Use backup robot</button>
   </div>
 
   <section id="settings">
@@ -268,6 +275,20 @@
       <input type="number" id="port" value="8080" min="1" max="65535" title="Port">
     </div>
     <div class="hint" id="profileHint"></div>
+    <div class="field">
+      <label for="robotSel">Active robot</label>
+      <select id="robotSel">
+        <option value="primary">Primary robot</option>
+        <option value="secondary">Secondary (backup) robot</option>
+      </select>
+    </div>
+    <div class="row">
+      <input type="text" id="ip2" placeholder="Secondary robot IP address (optional)">
+      <input type="number" id="port2" value="8080" min="1" max="65535" title="Secondary port">
+    </div>
+    <div class="hint">If the active robot fails, switch to the other one here —
+      or straight from the red status bar. The backup robot must run the same
+      Cooper server (see DEPLOYMENT.md).</div>
     <div class="row">
       <input type="password" id="pin" placeholder="Panel PIN">
       <button id="connect">Connect</button>
@@ -278,7 +299,8 @@
     </div>
     <div class="field">
       <label>Dance song shortlist — ticked songs appear in the dance list
-        (none ticked = show every song)</label>
+        (none ticked = show every song). The seconds box sets each song's
+        play time in the full show: blank = 30 s, 0 = don't wait.</label>
       <div id="shortlist"><span class="empty">Connect to Cooper to load the song library.</span></div>
       <div class="row" style="margin-top:8px">
         <button class="secondary" id="slAll">Tick all</button>
@@ -398,6 +420,13 @@
           remembered. Without the PIN the panel can only view status.</li>
         <li><b>Connect</b> — saves the settings and tests the connection.
           Normally not needed: the panel connects by itself when opened.</li>
+        <li><b>Active robot / Secondary robot IP</b> — a backup X2 can take
+          over the performance if the main robot fails. Enter the backup
+          robot's IP address once; then switch robots with the
+          <b>Active robot</b> selector, or — when the status bar is red —
+          press <b>🤖 Use backup robot</b> right on the bar to continue the
+          show on the other robot. Each robot keeps its own shortlist, play
+          times, and song alerts (they live on the robot itself).</li>
       </ul>
 
       <h3>Listening</h3>
@@ -409,10 +438,11 @@
 
       <h3>Actions</h3>
       <p>One-tap gestures Cooper performs immediately: <b>🤝 Shake hand</b>,
-      <b>🫶 Heart sign</b> (both hands), <b>👋 Right-hand goodbye</b>, and
-      <b>😘 Blow kiss</b>. They move the robot only — no speech, and the
-      microphone is not affected. The buttons are disabled while a full show
-      is running so gestures cannot interrupt the performance.</p>
+      <b>🫶 Heart sign</b> (both hands), <b>👋 Right-hand goodbye</b>,
+      <b>🖐️ Left-hand wave</b>, and <b>😘 Blow kiss</b>. They move the robot
+      only — no speech, and the microphone is not affected. The buttons are
+      disabled while a full show is running so gestures cannot interrupt the
+      performance.</p>
 
       <h3>Performance</h3>
       <ul>
@@ -448,7 +478,12 @@
       Cooper, so <b>all devices share the same list</b> (changing it needs the
       PIN). When the AgiBot LinkCraft cloud pushes new songs, a
       "✨ new dance songs" banner appears — press <b>Review</b>, tick the ones
-      you want, then <b>Mark NEW as seen</b> to clear the alert everywhere.</p>
+      you want, then <b>Mark NEW as seen</b> to clear the alert everywhere.
+      The <b>seconds box</b> next to each song sets how long the full show
+      waits while that dance plays: blank = the default 30 seconds, a number
+      = that many seconds, and <b>0 = don't wait at all</b> (the show moves
+      straight on). Play times are shared by all devices, like the
+      shortlist.</p>
 
       <h3>Performance diagnostics (in ⚙ Settings)</h3>
       <p>For checking how fast Cooper responds. When on, each button press logs
@@ -582,7 +617,23 @@
     (location.hostname === COOPER_SUITE_IP ? "robot" : "suite")
   );
 
-  const base = () => `http://${$("ip").value.trim()}:${$("port").value.trim()}`;
+  // ── primary / secondary (backup) robot ─────────────────────────────────
+  let activeRobot = localStorage.getItem("cooper_robot") || "primary";
+  $("robotSel").value = activeRobot;
+  $("ip2").value = localStorage.getItem("cooper_ip2") || "";
+  $("port2").value = localStorage.getItem("cooper_port2") || "8080";
+
+  const activeAddr = () => activeRobot === "secondary"
+    ? `${$("ip2").value.trim()}:${$("port2").value.trim()}`
+    : `${$("ip").value.trim()}:${$("port").value.trim()}`;
+  const base = () => `http://${activeAddr()}`;
+  const secondaryConfigured = () => !!$("ip2").value.trim();
+
+  function setRobot(robot) {
+    activeRobot = robot === "secondary" ? "secondary" : "primary";
+    localStorage.setItem("cooper_robot", activeRobot);
+    $("robotSel").value = activeRobot;
+  }
 
   // ── personalized messages (saved in the browser) ───────────────────────
   const DEFAULT_MSGS = {
@@ -618,6 +669,8 @@
 
   function saveSettings() {
     localStorage.setItem("cooper_pin", $("pin").value);
+    localStorage.setItem("cooper_ip2", $("ip2").value.trim());
+    localStorage.setItem("cooper_port2", $("port2").value.trim());
     if ($("profile").value === "event") {
       localStorage.setItem("cooper_event_ip", $("ip").value.trim());
       localStorage.setItem("cooper_event_port", $("port").value.trim());
@@ -747,12 +800,19 @@
   function updateServerBar(up) {
     online = up;
     const label = PROFILE_LABELS[$("profile").value] || "Custom";
-    const addr = `${$("ip").value.trim()}:${$("port").value.trim()}`;
+    const robotName = activeRobot === "secondary" ? "Secondary robot" : "Primary robot";
+    const addr = activeAddr();
     $("serverBar").className = up ? "up" : "down";
     $("sbarRetry").style.display = up ? "none" : "inline-block";
+    // Failover: offer the other robot when this one is down and both are set up.
+    const canSwitch = !up &&
+      (activeRobot === "primary" ? secondaryConfigured() : !!$("ip").value.trim());
+    $("sbarSwitch").style.display = canSwitch ? "inline-block" : "none";
+    $("sbarSwitch").textContent = activeRobot === "primary"
+      ? "🤖 Use backup robot" : "🤖 Back to primary robot";
     $("sbarText").textContent = up
-      ? `${label} · Cooper server ${addr} · Online`
-      : `${label} · Cooper server ${addr} · OFFLINE — controls disabled. ` +
+      ? `${label} · ${robotName} ${addr} · Online`
+      : `${label} · ${robotName} ${addr} · OFFLINE — controls disabled. ` +
         `Press Restart server, or check ⚙ Settings and Cooper's power.`;
     if (!up) {
       $("runShow").disabled = true;
@@ -815,7 +875,13 @@
   // ── actions ────────────────────────────────────────────────────────────
   async function connect() {
     saveSettings();
-    if (!$("ip").value.trim()) { status("Enter Cooper's IP address in ⚙ settings.", "err"); return; }
+    if (activeRobot === "secondary" && !secondaryConfigured()) {
+      setRobot("primary");
+      status("No secondary robot IP set — using the primary robot.", "err");
+    }
+    if (!$("ip").value.trim() && activeRobot === "primary") {
+      status("Enter Cooper's IP address in ⚙ settings.", "err"); return;
+    }
     try {
       const s = await api("/api/status");
       render(s);
@@ -837,6 +903,7 @@
   // Cooper (cooper_panel_config.json), so every device shares one list.
   let allDances = [];
   let shortlist = new Set();
+  let danceTimes = {};  // resource_key -> play time seconds (absent = default)
 
   const danceLabel = d => (d.name !== d.key ? d.name : d.key.slice(-16));
 
@@ -844,13 +911,15 @@
     try {
       await api("/api/shortlist", {
         method: "POST",
-        body: JSON.stringify({ shortlist: [...shortlist] }),
+        body: JSON.stringify({ shortlist: [...shortlist], times: danceTimes }),
       });
     } catch (e) {
       status(`Saving shortlist failed: ${e.message}`, "err");
       // Re-sync with what Cooper actually has.
       try {
-        shortlist = new Set((await api("/api/shortlist")).shortlist);
+        const sRes = await api("/api/shortlist");
+        shortlist = new Set(sRes.shortlist);
+        danceTimes = sRes.times || {};
         renderShortlist();
         renderDanceSelect();
       } catch {}
@@ -905,6 +974,25 @@
         pill.textContent = "NEW";
         label.appendChild(pill);
       }
+      // Per-song play time: blank = show default (30 s), 0 = don't wait.
+      const t = document.createElement("input");
+      t.type = "number";
+      t.className = "songTime";
+      t.min = 0; t.max = 600; t.step = 1;
+      t.placeholder = "30";
+      t.title = "Play time in seconds — blank = default 30, 0 = don't wait";
+      if (danceTimes[d.key] != null) t.value = danceTimes[d.key];
+      t.addEventListener("click", e => e.preventDefault());
+      t.addEventListener("change", () => {
+        if (t.value === "") delete danceTimes[d.key];
+        else danceTimes[d.key] = Math.min(600, Math.max(0, Number(t.value) || 0));
+        saveShortlist();
+      });
+      label.appendChild(t);
+      const secs = document.createElement("span");
+      secs.className = "songTimeUnit";
+      secs.textContent = "s";
+      label.appendChild(secs);
       box.appendChild(label);
     }
   }
@@ -960,6 +1048,7 @@
       ]);
       allDances = dRes.dances;
       shortlist = new Set(sRes.shortlist);
+      danceTimes = sRes.times || {};
 
       // One-time migration: move an old browser-stored shortlist to Cooper.
       const legacy = localStorage.getItem("cooper_shortlist");
@@ -1069,6 +1158,14 @@
   });
   $("resetMsgs").addEventListener("click", resetMessages);
   $("profile").addEventListener("change", e => { applyProfile(e.target.value); connect(); });
+  $("robotSel").addEventListener("change", e => { setRobot(e.target.value); connect(); });
+  $("sbarSwitch").addEventListener("click", async () => {
+    const target = activeRobot === "primary" ? "secondary" : "primary";
+    setRobot(target);
+    status(target === "secondary"
+      ? "Switching to the backup robot…" : "Switching back to the primary robot…", "ok");
+    await connect();
+  });
   $("slAll").addEventListener("click", () => setAllShortlist(true));
   $("slNone").addEventListener("click", () => setAllShortlist(false));
   $("reviewNew").addEventListener("click", async () => {
