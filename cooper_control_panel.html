@@ -42,7 +42,9 @@
 
   /* Header */
   header { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
-  header h1 { font-size: 20px; margin: 0; flex: 1; }
+  header h1 { font-size: 20px; margin: 0; flex: 1;
+              display: flex; align-items: center; gap: 9px; }
+  header .logo { width: 32px; height: 32px; flex: none; }
   .conn { display: flex; align-items: center; gap: 6px; color: var(--dim); font-size: 13px; }
   .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--dim); }
   .dot.on { background: var(--ok); } .dot.off { background: var(--bad); }
@@ -130,6 +132,13 @@
   #shortlist label { display: flex; gap: 9px; align-items: center; cursor: pointer; }
   #shortlist input[type=checkbox] { width: 17px; height: 17px; accent-color: var(--accent); }
   #shortlist .empty { color: var(--dim); }
+  #shortlist .songTime {
+    width: 64px; margin-left: auto; padding: 4px 8px; font-size: 14px;
+    background: #0d1116; border: 1px solid var(--edge); border-radius: 6px;
+    color: var(--text); text-align: right;
+  }
+  #shortlist .songTimeUnit { color: var(--dim); font-size: 13px; }
+  .field .row input[type=number] { width: 92px; flex: none; }
   .pill {
     background: var(--warn); color: #3a2600; border-radius: 5px;
     font-size: 11px; font-weight: 750; padding: 1px 7px; margin-left: auto;
@@ -181,22 +190,18 @@
   button:disabled { opacity: .45; cursor: default; }
   button.big { width: 100%; padding: 14px; font-size: 17px; }
 
-  /* Listening switch */
-  .switchRow { display: flex; align-items: center; gap: 14px; }
-  .switch { position: relative; width: 58px; height: 32px; flex: none; }
-  .switch input { opacity: 0; width: 0; height: 0; }
-  .slider {
-    position: absolute; inset: 0; border-radius: 32px; background: #3a2a2a;
-    border: 1px solid var(--edge); transition: background .15s; cursor: pointer;
+  /* Audio radios (microphone / speaker) */
+  .audioRow { align-items: center; }
+  .audioName { font-size: 16px; font-weight: 600; min-width: 140px; }
+  label.rad {
+    display: flex; gap: 7px; align-items: center; font-size: 15px;
+    user-select: none; cursor: pointer;
   }
-  .slider::before {
-    content: ""; position: absolute; width: 24px; height: 24px; border-radius: 50%;
-    left: 3px; top: 3px; background: var(--bad); transition: all .15s;
-  }
-  .switch input:checked + .slider { background: #14352a; }
-  .switch input:checked + .slider::before { left: 29px; background: var(--ok); }
-  .switch input:disabled + .slider { opacity: .45; cursor: default; }
-  #listenLabel { font-size: 17px; font-weight: 600; }
+  label.rad input[type=radio] { width: 19px; height: 19px; accent-color: var(--accent); }
+  .audioRow .state { margin-left: auto; }
+  #volSlider { flex: 1; min-width: 120px; accent-color: var(--accent);
+               height: 26px; touch-action: manipulation; }
+  #volState { min-width: 28px; text-align: right; }
   #listenHint { color: var(--dim); font-size: 13px; margin-top: 6px; }
 
   label.chk { display: flex; gap: 8px; align-items: center; color: var(--dim);
@@ -241,7 +246,17 @@
 <body>
 <main>
   <header>
-    <h1>🤖 Cooper</h1>
+    <h1><svg class="logo" viewBox="0 0 64 64" aria-hidden="true">
+      <rect x="2" y="24" width="8" height="16" rx="3" fill="#6d4726"/>
+      <rect x="54" y="24" width="8" height="16" rx="3" fill="#6d4726"/>
+      <rect x="8" y="8" width="48" height="48" rx="16" fill="#a16c41"/>
+      <rect x="13" y="12" width="38" height="17" rx="8.5" fill="#b8865b"/>
+      <rect x="16" y="22" width="32" height="17" rx="8.5" fill="#1e150d"/>
+      <rect x="20" y="25" width="24" height="4.5" rx="2.2" fill="#4a4038"/>
+      <circle cx="25" cy="31.5" r="4.4" fill="#fff"/>
+      <circle cx="39" cy="31.5" r="4.4" fill="#fff"/>
+      <rect x="26" y="45" width="12" height="4.5" rx="2.2" fill="#7a4d26"/>
+    </svg> Cooper</h1>
     <button id="helpBtn" class="hbtn" title="How to use this panel">❓ Help</button>
     <button id="gear" title="Change IP address, port, or PIN">⚙ Settings</button>
     <span class="conn"><span class="dot" id="connDot"></span><span id="connText">connecting…</span></span>
@@ -251,23 +266,35 @@
     <span class="dot" id="sbarDot"></span>
     <span id="sbarText">Checking Cooper's web server…</span>
     <button id="sbarRetry" class="hbtn" style="display:none">🔄 Restart server</button>
+    <button id="sbarSwitch" class="hbtn" style="display:none">🤖 Use backup robot</button>
   </div>
 
   <section id="settings">
     <h2>Connection</h2>
     <div class="field">
-      <label for="profile">Where is Cooper being used?</label>
-      <select id="profile">
-        <option value="suite">Show suite — One Comcentre</option>
-        <option value="robot">Cooper's built-in webserver</option>
-        <option value="event">Outside event — portable setup</option>
+      <label for="ip">Cooper (primary robot) IP address</label>
+      <div class="row">
+        <input type="text" id="ip" placeholder="Cooper IP address">
+        <input type="number" id="port" value="8080" min="1" max="65535" title="Port">
+      </div>
+    </div>
+    <div class="hint">This page is hosted on optimus; it talks directly to
+      Cooper's control API at the address above. At an event, just type
+      Cooper's IP on the event network.</div>
+    <div class="field">
+      <label for="robotSel">Active robot</label>
+      <select id="robotSel">
+        <option value="primary">Primary robot</option>
+        <option value="secondary">Secondary (backup) robot</option>
       </select>
     </div>
     <div class="row">
-      <input type="text" id="ip" placeholder="Cooper IP address">
-      <input type="number" id="port" value="8080" min="1" max="65535" title="Port">
+      <input type="text" id="ip2" placeholder="Secondary robot IP address (optional)">
+      <input type="number" id="port2" value="8080" min="1" max="65535" title="Secondary port">
     </div>
-    <div class="hint" id="profileHint"></div>
+    <div class="hint">If the active robot fails, switch to the other one here —
+      or straight from the red status bar. The backup robot must run the same
+      Cooper server (see DEPLOYMENT.md).</div>
     <div class="row">
       <input type="password" id="pin" placeholder="Panel PIN">
       <button id="connect">Connect</button>
@@ -277,8 +304,26 @@
         Performance diagnostics — show Cooper's response times</label>
     </div>
     <div class="field">
+      <label>Custom action buttons — label plus motion / area ids from the
+        AimDK preset-motion table (shared by all devices)</label>
+      <div class="row">
+        <input type="text" id="ca1Label" placeholder="Button 1 label">
+        <input type="number" id="ca1Motion" min="0" max="9999" title="Motion id">
+        <input type="number" id="ca1Area" min="0" max="99" title="Area id">
+      </div>
+      <div class="row">
+        <input type="text" id="ca2Label" placeholder="Button 2 label">
+        <input type="number" id="ca2Motion" min="0" max="9999" title="Motion id">
+        <input type="number" id="ca2Area" min="0" max="99" title="Area id">
+      </div>
+      <div class="row" style="margin-top:8px">
+        <button class="secondary" id="caSave">Save custom buttons</button>
+      </div>
+    </div>
+    <div class="field">
       <label>Dance song shortlist — ticked songs appear in the dance list
-        (none ticked = show every song)</label>
+        (none ticked = show every song). The seconds box sets each song's
+        play time in the full show: blank = 30 s, 0 = don't wait.</label>
       <div id="shortlist"><span class="empty">Connect to Cooper to load the song library.</span></div>
       <div class="row" style="margin-top:8px">
         <button class="secondary" id="slAll">Tick all</button>
@@ -289,15 +334,26 @@
   </section>
 
   <section>
-    <h2>Listening</h2>
-    <div class="switchRow">
-      <label class="switch">
-        <input type="checkbox" id="listenSwitch">
-        <span class="slider"></span>
-      </label>
-      <span id="listenLabel">…</span>
+    <h2>Audio</h2>
+    <div class="row audioRow">
+      <span class="audioName">🎙 Microphone</span>
+      <label class="rad"><input type="radio" name="micRad" id="micOn"> On</label>
+      <label class="rad"><input type="radio" name="micRad" id="micOff"> Off</label>
+      <span class="state" id="micState">unknown</span>
     </div>
-    <div id="listenHint">Off = Cooper ignores surrounding conversation.</div>
+    <div class="row audioRow">
+      <span class="audioName">🔊 Speaker</span>
+      <label class="rad"><input type="radio" name="spkRad" id="spkOn"> On</label>
+      <label class="rad"><input type="radio" name="spkRad" id="spkOff"> Muted</label>
+      <span class="state" id="spkState">unknown</span>
+    </div>
+    <div class="row audioRow">
+      <span class="audioName">🔉 Volume</span>
+      <input type="range" id="volSlider" min="0" max="100" step="5" value="70">
+      <span class="state" id="volState">—</span>
+    </div>
+    <div id="listenHint" class="hint">Microphone Off = Cooper ignores
+      surrounding conversation. Speaker Muted = no sound from Cooper.</div>
   </section>
 
   <section>
@@ -327,6 +383,16 @@
   <details class="card" id="messages">
     <summary>Personalize messages</summary>
     <div class="inner">
+      <div class="field">
+        <label for="msgGroup">Message group — each group keeps its own full set
+          of messages (e.g. Show suite, Event)</label>
+        <div class="row">
+          <select id="msgGroup"></select>
+          <button class="secondary" id="mgNew" title="Create a new group (copies the current messages)">＋ New</button>
+          <button class="secondary" id="mgRename" title="Rename this group">✏️</button>
+          <button class="secondary" id="mgDelete" title="Delete this group">🗑</button>
+        </div>
+      </div>
       <div class="field">
         <label for="guestName">Tenant company / guest name</label>
         <input type="text" id="guestName" placeholder="e.g. ABC Company, Mr. Chan — blank = “everyone”">
@@ -384,35 +450,47 @@
 
       <h3>⚙ Settings — Connection</h3>
       <ul>
-        <li><b>Where is Cooper being used?</b> — one selection covers the three
-          setups: <b>Show suite</b> (this page hosted on the optimus PC; Cooper
-          at its fixed suite address), <b>Cooper's built-in webserver</b> (page
-          served by Cooper itself; address is automatic), and <b>Outside event</b>
-          (portable setup — type Cooper's address on the event network).</li>
-        <li><b>IP address / port</b> — Cooper's network address. Locked for the
-          first two setups because the address is known; editable for events.
-          The value you type at an event is remembered separately, so returning
-          to the show suite never loses it.</li>
+        <li><b>Cooper IP address / port</b> — the robot's network address
+          (this page itself is hosted on optimus). In the show suite it is
+          192.168.68.54; at an event, type Cooper's address on the event
+          network. The value is remembered.</li>
         <li><b>Panel PIN</b> — required for every control action (listening,
           dance, show, shortlist changes). Enter it once per device; it is
           remembered. Without the PIN the panel can only view status.</li>
         <li><b>Connect</b> — saves the settings and tests the connection.
           Normally not needed: the panel connects by itself when opened.</li>
+        <li><b>Active robot / Secondary robot IP</b> — a backup X2 can take
+          over the performance if the main robot fails. Enter the backup
+          robot's IP address once; then switch robots with the
+          <b>Active robot</b> selector, or — when the status bar is red —
+          press <b>🤖 Use backup robot</b> right on the bar to continue the
+          show on the other robot. Each robot keeps its own shortlist, play
+          times, and song alerts (they live on the robot itself).</li>
       </ul>
 
-      <h3>Listening</h3>
-      <p>The switch turns Cooper's microphones on or off. <b>Off (muted)</b>
-      means Cooper ignores surrounding conversation and will not answer the
-      audience. During a show the script controls the microphone itself: muted
-      at the start, and it stays muted afterwards unless
-      "listen again after show" is ticked.</p>
+      <h3>Audio — microphone and speaker</h3>
+      <p><b>🎙 Microphone On / Off</b> — Off means Cooper ignores surrounding
+      conversation and will not answer the audience. During a show the script
+      controls the microphone itself: muted at the start, and it stays muted
+      afterwards unless "listen again after show" is ticked.
+      <br><b>🔊 Speaker On / Muted</b> — Muted sets Cooper's volume to zero,
+      so no speech or sound comes out (useful for a silent rehearsal); On
+      restores the normal volume.
+      <br><b>🔉 Volume slider</b> — sets the speaker level directly (0–100);
+      sliding to 0 is the same as Muted, and the last non-zero level you set
+      is what "Speaker On" restores. Speaker and volume stay usable even
+      while a show is running.</p>
 
       <h3>Actions</h3>
       <p>One-tap gestures Cooper performs immediately: <b>🤝 Shake hand</b>,
-      <b>🫶 Heart sign</b> (both hands), <b>👋 Right-hand goodbye</b>, and
-      <b>😘 Blow kiss</b>. They move the robot only — no speech, and the
-      microphone is not affected. The buttons are disabled while a full show
-      is running so gestures cannot interrupt the performance.</p>
+      <b>🫶 Heart sign</b> (both hands), <b>👋 Right-hand goodbye</b>,
+      <b>🖐️ Left-hand wave</b>, and <b>😘 Blow kiss</b> — plus two
+      <b>⭐ customizable buttons</b> (out of the box: Right-hand wave and
+      Both-hands heart). Change a custom button's label and motion/area ids
+      in ⚙ Settings → "Custom action buttons"; the change applies to every
+      device. Gestures move the robot only — no speech, and the microphone
+      is not affected. All buttons are disabled while a full show is running
+      so gestures cannot interrupt the performance.</p>
 
       <h3>Performance</h3>
       <ul>
@@ -429,6 +507,13 @@
 
       <h3>Personalize messages</h3>
       <ul>
+        <li><b>Message group</b> — a group is a complete set of the messages
+          below, and you can keep one per occasion: "Show suite" and "Event"
+          exist from the start, and <b>＋ New</b> creates your own (it copies
+          the current texts as a starting point; ✏️ renames, 🗑 deletes).
+          Pick a group in the dropdown and the show speaks that group's
+          messages — switch "Show suite" ↔ "Event" with one selection, no
+          retyping.</li>
         <li><b>Tenant company / guest name</b> — write <code>{name}</code>
           anywhere in a message and Cooper speaks this name there. Blank =
           "everyone".</li>
@@ -448,7 +533,12 @@
       Cooper, so <b>all devices share the same list</b> (changing it needs the
       PIN). When the AgiBot LinkCraft cloud pushes new songs, a
       "✨ new dance songs" banner appears — press <b>Review</b>, tick the ones
-      you want, then <b>Mark NEW as seen</b> to clear the alert everywhere.</p>
+      you want, then <b>Mark NEW as seen</b> to clear the alert everywhere.
+      The <b>seconds box</b> next to each song sets how long the full show
+      waits while that dance plays: blank = the default 30 seconds, a number
+      = that many seconds, and <b>0 = don't wait at all</b> (the show moves
+      straight on). Play times are shared by all devices, like the
+      shortlist.</p>
 
       <h3>Performance diagnostics (in ⚙ Settings)</h3>
       <p>For checking how fast Cooper responds. When on, each button press logs
@@ -474,17 +564,16 @@
 
       <h3>Taking Cooper to an outside event (portable setup)</h3>
       <ul>
-        <li><b>1.</b> Copy <code>cooper_control_panel.html</code> onto the
-          notebook — into its Apache web root (<code>/var/www/html/</code>),
-          or simply open the file straight from a folder in the browser.</li>
+        <li><b>1.</b> Take a copy of <code>cooper_control_panel.html</code>
+          on the notebook or tablet and open it straight from a folder in
+          the browser — no webserver is needed at the event.</li>
         <li><b>2.</b> Connect Cooper and the notebook to the event network,
           and note Cooper's IP address on that network.</li>
-        <li><b>3.</b> In ⚙ Settings choose
-          <b>"Outside event — portable setup"</b>, type Cooper's event IP,
-          and press Connect. The address is remembered separately, so the
-          show-suite settings are untouched when you return.</li>
+        <li><b>3.</b> In ⚙ Settings type Cooper's event IP and press
+          Connect. Back at the show suite, change it back to
+          192.168.68.54.</li>
         <li><b>4.</b> Follow the show-day checklist above. Tip: for events,
-          install Cooper's webserver with no idle timer
+          install Cooper's control API with no idle timer
           (<code>--idle-exit 0</code>) so it never stops while waiting for
           the performance slot.</li>
       </ul>
@@ -546,43 +635,30 @@
   }
 
   // ── connection settings (saved in the browser) ─────────────────────────
-  // One dropdown covers the three hosting setups; only the event profile
-  // needs a typed address, and it is remembered for next time.
-  const COOPER_SUITE_IP = "192.168.68.54";   // Cooper on the show-suite network
-  const PROFILES = {
-    suite: {
-      ip: () => COOPER_SUITE_IP, port: () => "8080", fixed: true,
-      hint: `Panel hosted on optimus (Apache) — controls Cooper at ${COOPER_SUITE_IP}.`,
-    },
-    robot: {
-      ip: () => location.hostname || COOPER_SUITE_IP,
-      port: () => location.port || "8080", fixed: true,
-      hint: "Panel hosted by Cooper's built-in webserver — address is automatic.",
-    },
-    event: {
-      ip: () => localStorage.getItem("cooper_event_ip") || COOPER_SUITE_IP,
-      port: () => localStorage.getItem("cooper_event_port") || "8080", fixed: false,
-      hint: "Portable setup — type Cooper's IP address on the event network below.",
-    },
-  };
-
-  function applyProfile(key) {
-    const p = PROFILES[key] || PROFILES.suite;
-    $("profile").value = PROFILES[key] ? key : "suite";
-    localStorage.setItem("cooper_profile", $("profile").value);
-    $("ip").value = p.ip();
-    $("port").value = p.port();
-    $("ip").readOnly = $("port").readOnly = p.fixed;
-    $("profileHint").textContent = p.hint;
-  }
-
+  // The page is hosted on optimus; the only address that matters here is
+  // Cooper's control API. At an event, type Cooper's IP on that network.
+  const COOPER_DEFAULT_IP = "192.168.68.54";   // Cooper on the show-suite network
   $("pin").value = localStorage.getItem("cooper_pin") || "";
-  applyProfile(
-    localStorage.getItem("cooper_profile") ||
-    (location.hostname === COOPER_SUITE_IP ? "robot" : "suite")
-  );
+  $("ip").value = localStorage.getItem("cooper_ip") || COOPER_DEFAULT_IP;
+  $("port").value = localStorage.getItem("cooper_port") || "8080";
 
-  const base = () => `http://${$("ip").value.trim()}:${$("port").value.trim()}`;
+  // ── primary / secondary (backup) robot ─────────────────────────────────
+  let activeRobot = localStorage.getItem("cooper_robot") || "primary";
+  $("robotSel").value = activeRobot;
+  $("ip2").value = localStorage.getItem("cooper_ip2") || "";
+  $("port2").value = localStorage.getItem("cooper_port2") || "8080";
+
+  const activeAddr = () => activeRobot === "secondary"
+    ? `${$("ip2").value.trim()}:${$("port2").value.trim()}`
+    : `${$("ip").value.trim()}:${$("port").value.trim()}`;
+  const base = () => `http://${activeAddr()}`;
+  const secondaryConfigured = () => !!$("ip2").value.trim();
+
+  function setRobot(robot) {
+    activeRobot = robot === "secondary" ? "secondary" : "primary";
+    localStorage.setItem("cooper_robot", activeRobot);
+    $("robotSel").value = activeRobot;
+  }
 
   // ── personalized messages (saved in the browser) ───────────────────────
   const DEFAULT_MSGS = {
@@ -596,32 +672,129 @@
   };
   const MSG_FIELDS = ["guestName", "greetAM", "greetPM", "introMsg", "goodbyeMsg"];
 
-  function loadMessages() {
-    for (const id of MSG_FIELDS) {
-      const saved = localStorage.getItem("cooper_" + id);
-      $(id).value = saved !== null ? saved : (DEFAULT_MSGS[id] || "");
-    }
+  // Message groups: named sets of all five texts (e.g. "Show suite", "Event").
+  // The fields always show the ACTIVE group; the show speaks whatever the
+  // fields hold, so switching groups switches the whole script.
+  let msgGroups = {};
+  let activeGroup = "";
+
+  const defaultMsgSet = () => {
+    const set = {};
+    for (const id of MSG_FIELDS) set[id] = DEFAULT_MSGS[id] || "";
+    return set;
+  };
+
+  function saveMsgGroups() {
+    localStorage.setItem("cooper_msg_groups",
+      JSON.stringify({ groups: msgGroups, active: activeGroup }));
   }
+
+  function loadMsgGroups() {
+    try {
+      const s = JSON.parse(localStorage.getItem("cooper_msg_groups") || "null");
+      if (s && s.groups && Object.keys(s.groups).length) {
+        msgGroups = s.groups;
+        activeGroup = s.active in s.groups ? s.active : Object.keys(s.groups)[0];
+        return;
+      }
+    } catch {}
+    // First run: seed the two standard groups, migrating any texts saved by
+    // the previous single-set version into "Show suite".
+    const legacy = defaultMsgSet();
+    for (const id of MSG_FIELDS) {
+      const v = localStorage.getItem("cooper_" + id);
+      if (v !== null) { legacy[id] = v; localStorage.removeItem("cooper_" + id); }
+    }
+    msgGroups = { "Show suite": legacy, "Event": defaultMsgSet() };
+    activeGroup = "Show suite";
+    saveMsgGroups();
+  }
+
+  function renderGroupSelect() {
+    const sel = $("msgGroup");
+    sel.innerHTML = "";
+    for (const name of Object.keys(msgGroups)) {
+      const opt = document.createElement("option");
+      opt.value = name;
+      opt.textContent = name;
+      sel.appendChild(opt);
+    }
+    sel.value = activeGroup;
+  }
+
+  function loadGroupToFields() {
+    const g = msgGroups[activeGroup] || {};
+    for (const id of MSG_FIELDS) $(id).value = g[id] ?? (DEFAULT_MSGS[id] || "");
+  }
+
   function resetMessages() {
-    for (const id of MSG_FIELDS) {
-      $(id).value = DEFAULT_MSGS[id] || "";
-      localStorage.removeItem("cooper_" + id);
-    }
-    status("Messages reset to defaults.", "ok");
+    msgGroups[activeGroup] = defaultMsgSet();
+    saveMsgGroups();
+    loadGroupToFields();
+    status(`Group "${activeGroup}" reset to the default messages.`, "ok");
   }
+
   document.addEventListener("input", e => {
     if (MSG_FIELDS.includes(e.target.id)) {
-      localStorage.setItem("cooper_" + e.target.id, e.target.value);
+      (msgGroups[activeGroup] = msgGroups[activeGroup] || defaultMsgSet())
+        [e.target.id] = e.target.value;
+      saveMsgGroups();
     }
   });
-  loadMessages();
+
+  loadMsgGroups();
+  renderGroupSelect();
+  loadGroupToFields();
+
+  $("msgGroup").addEventListener("change", e => {
+    activeGroup = e.target.value;
+    saveMsgGroups();
+    loadGroupToFields();
+    status(`Message group "${activeGroup}" is now active.`, "ok");
+  });
+  $("mgNew").addEventListener("click", () => {
+    const name = (prompt("Name for the new message group (e.g. VIP tour):") || "").trim();
+    if (!name) return;
+    if (msgGroups[name]) { status(`A group called "${name}" already exists.`, "err"); return; }
+    // Start the new group as a copy of the current one, then tweak.
+    msgGroups[name] = { ...(msgGroups[activeGroup] || defaultMsgSet()) };
+    activeGroup = name;
+    saveMsgGroups();
+    renderGroupSelect();
+    loadGroupToFields();
+    status(`Group "${name}" created (copied from the previous group).`, "ok");
+  });
+  $("mgRename").addEventListener("click", () => {
+    const name = (prompt("New name for this message group:", activeGroup) || "").trim();
+    if (!name || name === activeGroup) return;
+    if (msgGroups[name]) { status(`A group called "${name}" already exists.`, "err"); return; }
+    msgGroups[name] = msgGroups[activeGroup];
+    delete msgGroups[activeGroup];
+    activeGroup = name;
+    saveMsgGroups();
+    renderGroupSelect();
+    status(`Group renamed to "${name}".`, "ok");
+  });
+  $("mgDelete").addEventListener("click", () => {
+    if (Object.keys(msgGroups).length <= 1) {
+      status("Cannot delete the last message group.", "err");
+      return;
+    }
+    if (!confirm(`Delete the message group "${activeGroup}"?`)) return;
+    delete msgGroups[activeGroup];
+    activeGroup = Object.keys(msgGroups)[0];
+    saveMsgGroups();
+    renderGroupSelect();
+    loadGroupToFields();
+    status(`Group deleted — "${activeGroup}" is now active.`, "ok");
+  });
 
   function saveSettings() {
     localStorage.setItem("cooper_pin", $("pin").value);
-    if ($("profile").value === "event") {
-      localStorage.setItem("cooper_event_ip", $("ip").value.trim());
-      localStorage.setItem("cooper_event_port", $("port").value.trim());
-    }
+    localStorage.setItem("cooper_ip", $("ip").value.trim());
+    localStorage.setItem("cooper_port", $("port").value.trim());
+    localStorage.setItem("cooper_ip2", $("ip2").value.trim());
+    localStorage.setItem("cooper_port2", $("port2").value.trim());
   }
 
   async function api(path, opts = {}) {
@@ -737,27 +910,30 @@
   setDiag(diagOn);
 
   // ── web server availability bar ────────────────────────────────────────
-  const PROFILE_LABELS = {
-    suite: "Show suite — One Comcentre",
-    robot: "Cooper's built-in webserver",
-    event: "Outside event — portable",
-  };
   let online = false;
+
+  const AUDIO_RADIOS = ["micOn", "micOff", "spkOn", "spkOff", "volSlider"];
 
   function updateServerBar(up) {
     online = up;
-    const label = PROFILE_LABELS[$("profile").value] || "Custom";
-    const addr = `${$("ip").value.trim()}:${$("port").value.trim()}`;
+    const robotName = activeRobot === "secondary" ? "Secondary robot" : "Primary robot";
+    const addr = activeAddr();
     $("serverBar").className = up ? "up" : "down";
     $("sbarRetry").style.display = up ? "none" : "inline-block";
+    // Failover: offer the other robot when this one is down and both are set up.
+    const canSwitch = !up &&
+      (activeRobot === "primary" ? secondaryConfigured() : !!$("ip").value.trim());
+    $("sbarSwitch").style.display = canSwitch ? "inline-block" : "none";
+    $("sbarSwitch").textContent = activeRobot === "primary"
+      ? "🤖 Use backup robot" : "🤖 Back to primary robot";
     $("sbarText").textContent = up
-      ? `${label} · Cooper server ${addr} · Online`
-      : `${label} · Cooper server ${addr} · OFFLINE — controls disabled. ` +
+      ? `${robotName} · Cooper server ${addr} · Online`
+      : `${robotName} · Cooper server ${addr} · OFFLINE — controls disabled. ` +
         `Press Restart server, or check ⚙ Settings and Cooper's power.`;
     if (!up) {
       $("runShow").disabled = true;
       $("playDance").disabled = true;
-      $("listenSwitch").disabled = true;
+      AUDIO_RADIOS.forEach(id => { $(id).disabled = true; });
     }
     setActionButtonsEnabled();
   }
@@ -776,14 +952,28 @@
     setActionButtonsEnabled();
     $("runShow").textContent = showRunning ? "⏳ Show running…" : "▶ Run full show";
 
-    const sw = $("listenSwitch");
-    sw.disabled = showRunning;
-    if (s.listening === true)  { sw.checked = true;  $("listenLabel").textContent = "Listening"; }
-    else if (s.listening === false) { sw.checked = false; $("listenLabel").textContent = "Muted"; }
-    else { sw.checked = false; $("listenLabel").textContent = "Unknown"; }
+    // Microphone radios (the show controls the mic while it runs).
+    $("micOn").disabled = $("micOff").disabled = showRunning;
+    $("micOn").checked = s.listening === true;
+    $("micOff").checked = s.listening === false;
+    $("micState").textContent =
+      s.listening === true ? "listening" : s.listening === false ? "off" : "unknown";
+    // Speaker radios + volume (usable even during a show, e.g. silent rehearsal).
+    $("spkOn").disabled = $("spkOff").disabled = $("volSlider").disabled = false;
+    $("spkOn").checked = s.speaker === true;
+    $("spkOff").checked = s.speaker === false;
+    $("spkState").textContent =
+      s.speaker === true ? "on" : s.speaker === false ? "muted" : "unknown";
+    if (s.volume != null && document.activeElement !== $("volSlider")) {
+      $("volSlider").value = s.volume;
+      $("volState").textContent = s.volume;
+    } else if (s.volume == null) {
+      $("volState").textContent = "—";
+    }
     $("listenHint").textContent = showRunning
       ? "The show controls the microphone while it is running."
-      : "Off = Cooper ignores surrounding conversation.";
+      : "Microphone Off = Cooper ignores surrounding conversation. " +
+        "Speaker Muted = no sound from Cooper.";
 
     // Show milestones reported live by the running show script.
     trackShowTiming(s.show_timing);
@@ -815,7 +1005,13 @@
   // ── actions ────────────────────────────────────────────────────────────
   async function connect() {
     saveSettings();
-    if (!$("ip").value.trim()) { status("Enter Cooper's IP address in ⚙ settings.", "err"); return; }
+    if (activeRobot === "secondary" && !secondaryConfigured()) {
+      setRobot("primary");
+      status("No secondary robot IP set — using the primary robot.", "err");
+    }
+    if (!$("ip").value.trim() && activeRobot === "primary") {
+      status("Enter Cooper's IP address in ⚙ settings.", "err"); return;
+    }
     try {
       const s = await api("/api/status");
       render(s);
@@ -837,6 +1033,7 @@
   // Cooper (cooper_panel_config.json), so every device shares one list.
   let allDances = [];
   let shortlist = new Set();
+  let danceTimes = {};  // resource_key -> play time seconds (absent = default)
 
   const danceLabel = d => (d.name !== d.key ? d.name : d.key.slice(-16));
 
@@ -844,13 +1041,15 @@
     try {
       await api("/api/shortlist", {
         method: "POST",
-        body: JSON.stringify({ shortlist: [...shortlist] }),
+        body: JSON.stringify({ shortlist: [...shortlist], times: danceTimes }),
       });
     } catch (e) {
       status(`Saving shortlist failed: ${e.message}`, "err");
       // Re-sync with what Cooper actually has.
       try {
-        shortlist = new Set((await api("/api/shortlist")).shortlist);
+        const sRes = await api("/api/shortlist");
+        shortlist = new Set(sRes.shortlist);
+        danceTimes = sRes.times || {};
         renderShortlist();
         renderDanceSelect();
       } catch {}
@@ -905,6 +1104,25 @@
         pill.textContent = "NEW";
         label.appendChild(pill);
       }
+      // Per-song play time: blank = show default (30 s), 0 = don't wait.
+      const t = document.createElement("input");
+      t.type = "number";
+      t.className = "songTime";
+      t.min = 0; t.max = 600; t.step = 1;
+      t.placeholder = "30";
+      t.title = "Play time in seconds — blank = default 30, 0 = don't wait";
+      if (danceTimes[d.key] != null) t.value = danceTimes[d.key];
+      t.addEventListener("click", e => e.preventDefault());
+      t.addEventListener("change", () => {
+        if (t.value === "") delete danceTimes[d.key];
+        else danceTimes[d.key] = Math.min(600, Math.max(0, Number(t.value) || 0));
+        saveShortlist();
+      });
+      label.appendChild(t);
+      const secs = document.createElement("span");
+      secs.className = "songTimeUnit";
+      secs.textContent = "s";
+      label.appendChild(secs);
       box.appendChild(label);
     }
   }
@@ -925,6 +1143,14 @@
   async function loadActions() {
     try {
       const { actions } = await api("/api/actions");
+      // Fill the custom-button editor in settings from the shared config.
+      actions.filter(a => a.custom).forEach((a, i) => {
+        const n = i + 1;
+        if (!$(`ca${n}Label`)) return;
+        $(`ca${n}Label`).value = a.label;
+        $(`ca${n}Motion`).value = a.motion;
+        $(`ca${n}Area`).value = a.area;
+      });
       const box = $("actionBtns");
       box.innerHTML = "";
       for (const a of actions) {
@@ -960,6 +1186,7 @@
       ]);
       allDances = dRes.dances;
       shortlist = new Set(sRes.shortlist);
+      danceTimes = sRes.times || {};
 
       // One-time migration: move an old browser-stored shortlist to Cooper.
       const legacy = localStorage.getItem("cooper_shortlist");
@@ -985,19 +1212,53 @@
     }
   }
 
-  $("listenSwitch").addEventListener("change", async e => {
-    const listen = e.target.checked;
-    e.target.disabled = true;
+  async function setAudio(path, body, label, okMsg) {
+    AUDIO_RADIOS.forEach(id => { $(id).disabled = true; });
     try {
-      const data = await api("/api/listening", { method: "POST", body: JSON.stringify({ listen }) });
-      logDiag(listen ? "Listening ON" : "Listening OFF", data);
-      status(listen ? "Cooper is listening." : "Cooper is muted.", "ok");
+      const data = await api(path, { method: "POST", body: JSON.stringify(body) });
+      logDiag(label, data);
+      status(okMsg, "ok");
     } catch (err) {
-      e.target.checked = !listen;
-      status(`Could not change listening: ${err.message}`, "err");
+      status(`${label} failed: ${err.message}`, "err");
     } finally {
-      e.target.disabled = showRunning || !online;
-      poll();
+      poll();  // re-renders the radios from Cooper's actual state
+    }
+  }
+  $("micOn").addEventListener("change", () =>
+    setAudio("/api/listening", { listen: true }, "Microphone ON", "Microphone is on — Cooper is listening."));
+  $("micOff").addEventListener("change", () =>
+    setAudio("/api/listening", { listen: false }, "Microphone OFF", "Microphone is off."));
+  $("spkOn").addEventListener("change", () =>
+    setAudio("/api/speaker", { on: true }, "Speaker ON", "Speaker is on."));
+  $("spkOff").addEventListener("change", () =>
+    setAudio("/api/speaker", { on: false }, "Speaker MUTED", "Speaker is muted — Cooper makes no sound."));
+  $("volSlider").addEventListener("input", () => {
+    $("volState").textContent = $("volSlider").value;
+  });
+  $("volSlider").addEventListener("change", () => {
+    const level = Number($("volSlider").value);
+    setAudio("/api/volume", { level },
+      "Volume", level === 0 ? "Volume 0 — speaker muted." : `Volume set to ${level}.`);
+  });
+  $("caSave").addEventListener("click", async () => {
+    $("caSave").disabled = true;
+    try {
+      await api("/api/custom_actions", {
+        method: "POST",
+        body: JSON.stringify({
+          actions: [1, 2].map(n => ({
+            label: $(`ca${n}Label`).value.trim(),
+            motion: Number($(`ca${n}Motion`).value),
+            area: Number($(`ca${n}Area`).value),
+          })),
+        }),
+      });
+      status("Custom buttons saved for all devices.", "ok");
+      await loadActions();
+    } catch (e) {
+      status(`Saving custom buttons failed: ${e.message}`, "err");
+    } finally {
+      $("caSave").disabled = false;
     }
   });
 
@@ -1068,7 +1329,14 @@
     if (e.target === $("helpModal")) $("helpModal").classList.remove("open");
   });
   $("resetMsgs").addEventListener("click", resetMessages);
-  $("profile").addEventListener("change", e => { applyProfile(e.target.value); connect(); });
+  $("robotSel").addEventListener("change", e => { setRobot(e.target.value); connect(); });
+  $("sbarSwitch").addEventListener("click", async () => {
+    const target = activeRobot === "primary" ? "secondary" : "primary";
+    setRobot(target);
+    status(target === "secondary"
+      ? "Switching to the backup robot…" : "Switching back to the primary robot…", "ok");
+    await connect();
+  });
   $("slAll").addEventListener("click", () => setAllShortlist(true));
   $("slNone").addEventListener("click", () => setAllShortlist(false));
   $("reviewNew").addEventListener("click", async () => {
@@ -1095,23 +1363,11 @@
 
   connect();
 
-  // Page icon: served by Cooper at /favicon.png (real PNG if cooper_icon.png
-  // is installed next to the server). When the page is opened directly from
-  // a file, fall back to the built-in Cooper icon.
-  const COOPER_SVG =
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">' +
-    '<rect width="64" height="64" rx="14" fill="#eef1f4"/>' +
-    '<rect x="17" y="7" width="30" height="32" rx="13" fill="#17191c"/>' +
-    '<rect x="26" y="17" width="3" height="8" rx="1.5" fill="#fff"/>' +
-    '<rect x="35" y="17" width="3" height="8" rx="1.5" fill="#fff"/>' +
-    '<rect x="27" y="29" width="10" height="2.6" rx="1.3" fill="#fff"/>' +
-    '<rect x="10" y="42" width="44" height="18" rx="9" fill="#fbfcfd" stroke="#c6ced6" stroke-width="1.5"/>' +
-    '<circle cx="32" cy="48" r="1.7" fill="#17191c"/>' +
-    '<circle cx="32" cy="54" r="1.7" fill="#17191c"/>' +
-    '</svg>';
-  if (location.protocol === "file:") {
-    $("favicon").href = "data:image/svg+xml," + encodeURIComponent(COOPER_SVG);
-  }
+  // Page icon: the Cooper head artwork (same drawing as the header logo),
+  // embedded as a data URI so it works from Apache and from a local file.
+  $("favicon").href = "data:image/svg+xml," +
+    encodeURIComponent(document.querySelector("header .logo").outerHTML
+      .replace("<svg", '<svg xmlns="http://www.w3.org/2000/svg"'));
 })();
 </script>
 </body>

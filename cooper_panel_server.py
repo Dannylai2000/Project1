@@ -1,25 +1,25 @@
-"""Cooper Control Panel — HTTP bridge to the AgiBot X2 (ROS2 / AimDK).
+"""Cooper control API — HTTP bridge to the AgiBot X2 (ROS2 / AimDK).
 
-Runs ON the robot (or any machine on the same ROS2 domain) and exposes a
-small REST API plus the control panel webpage, so Cooper can be driven
-from any browser on the network:
+Runs ON the robot and exposes the REST API the Cooper Control Panel
+webpage (hosted on optimus) talks to:
 
-    GET  /                  → cooper_control_panel.html
-    GET  /api/status        → server + listening state
+    GET  /api/status        → server + mic/speaker/show state
     GET  /api/dances        → LinkCraft dance resources (live from the robot)
+    GET  /api/actions       → one-tap gestures
+    GET  /api/shortlist     → shared shortlist + per-dance play times
     POST /api/dance         → {"key": "..."} start that dance now
-    POST /api/listening     → {"listen": true|false} unmute / mute the mic
-    POST /api/show          → {"dance_key": "...", "unmute_after": false}
-                              run the full showroom sequence as a subprocess
+    POST /api/listening     → {"listen": true|false} mic on / off
+    POST /api/speaker       → {"on": true|false} speaker on / muted
+    POST /api/action        → {"action": "..."} run a gesture
+    POST /api/shortlist     → save shortlist / play times
+    POST /api/songs_seen    → acknowledge new songs
+    POST /api/show          → run the full showroom sequence
 
 Standard library only — no Flask/aiohttp needed on the robot.
 
 Run on the robot:
     source /opt/ros/humble/setup.bash && source ~/aimdk/install/setup.bash
     python3 cooper_panel_server.py --port 8080
-
-Then browse to http://<cooper-ip>:8080 — or open
-cooper_control_panel.html anywhere and type Cooper's IP into the panel.
 """
 
 from __future__ import annotations
@@ -50,12 +50,19 @@ try:
 except ImportError:  # pragma: no cover
     SetMute = None
 
+# SetVolume drives the speaker (0-100); muting = volume 0.
+try:
+    from aimdk_msgs.srv import SetVolume
+except ImportError:  # pragma: no cover
+    SetVolume = None
+
 
 LOGGER = logging.getLogger("cooper_panel")
 
 DEFAULT_GET_RESOURCES_SVC  = "/aimdk_5Fmsgs/srv/GetRobotResources"
 DEFAULT_EXECUTE_ACTION_SVC = "/aimdk_5Fmsgs/srv/ExecuteActionResource"
 DEFAULT_SET_MUTE_SVC       = "/aimdk_5Fmsgs/srv/SetMute"
+DEFAULT_SET_VOLUME_SVC     = "/aimdk_5Fmsgs/srv/SetVolume"
 DEFAULT_PRESET_MOTION_SVC  = "/aimdk_5Fmsgs/srv/SetMcPresetMotion"
 
 # One-tap gestures for the panel's Actions card. Motion/area IDs follow the
@@ -65,42 +72,27 @@ ACTIONS = {
     "shake_hand":   {"label": "Shake hand",         "emoji": "🤝", "motion": 1003, "area": 2},
     "heart":        {"label": "Heart sign",          "emoji": "🫶", "motion": 1007, "area": 3},
     "wave_goodbye": {"label": "Right-hand goodbye",  "emoji": "👋", "motion": 1002, "area": 2},
+    "wave_left":    {"label": "Left-hand wave",      "emoji": "🖐️", "motion": 1002, "area": 1},
     "blow_kiss":    {"label": "Blow kiss",           "emoji": "😘", "motion": 1004, "area": 2},
 }
 
-PANEL_HTML_FILE = Path(__file__).resolve().parent / "cooper_control_panel.html"
 SHOW_SCRIPT     = Path(__file__).resolve().parent / "x2_showroom_demo.py"
 
-# Drop a photo of Cooper here (PNG) to use it as the panel's page icon.
-FAVICON_FILE    = Path(__file__).resolve().parent / "cooper_icon.png"
-
-# Shared panel settings (currently the dance shortlist), one file for all
+# Shared panel settings (dance shortlist + play times), one file for all
 # devices, stored next to the server on Cooper.
 CONFIG_FILE     = Path(__file__).resolve().parent / "cooper_panel_config.json"
 
 # Milestones written by the running show script (first speech, dance start),
 # read back for the panel's performance diagnostics.
 TIMING_FILE     = Path(__file__).resolve().parent / "cooper_show_timing.json"
-FALLBACK_ICON_SVG = (
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">'
-    '<rect width="64" height="64" rx="14" fill="#eef1f4"/>'
-    '<rect x="17" y="7" width="30" height="32" rx="13" fill="#17191c"/>'
-    '<rect x="26" y="17" width="3" height="8" rx="1.5" fill="#fff"/>'
-    '<rect x="35" y="17" width="3" height="8" rx="1.5" fill="#fff"/>'
-    '<rect x="27" y="29" width="10" height="2.6" rx="1.3" fill="#fff"/>'
-    '<rect x="10" y="42" width="44" height="18" rx="9" fill="#fbfcfd" '
-    'stroke="#c6ced6" stroke-width="1.5"/>'
-    '<circle cx="32" cy="48" r="1.7" fill="#17191c"/>'
-    '<circle cx="32" cy="54" r="1.7" fill="#17191c"/>'
-    "</svg>"
-).encode()
 
 
 class CooperPanelNode(Node):
     """ROS2 side of the panel: talks to the AimDK services."""
 
-    def __init__(self, mute_service: str) -> None:
+    def __init__(self, mute_service: str, speaker_volume: int = 70) -> None:
         super().__init__("cooper_panel")
+        self._speaker_volume = max(1, min(100, int(speaker_volume)))
         self._cbg = MutuallyExclusiveCallbackGroup()
         self._lock = threading.Lock()
 
@@ -118,9 +110,16 @@ class CooperPanelNode(Node):
         self._preset_motion = self.create_client(
             SetMcPresetMotion, DEFAULT_PRESET_MOTION_SVC, callback_group=self._cbg
         )
+        self._set_volume = None
+        if SetVolume is not None:
+            self._set_volume = self.create_client(
+                SetVolume, DEFAULT_SET_VOLUME_SVC, callback_group=self._cbg
+            )
 
-        # Last listening state we set (None until first change from the panel).
+        # Last listening/speaker/volume states we set (None until first change).
         self.listening_state: bool | None = None
+        self.speaker_state: bool | None = None
+        self.volume_state: int | None = None
         # Cache of resource_key -> resource, refreshed by list_dances().
         self._resource_cache: dict = {}
 
@@ -290,6 +289,60 @@ class CooperPanelNode(Node):
         LOGGER.info("Microphone %s", "UNMUTED (listening)" if listen else "MUTED")
         return timing
 
+    def _send_volume(self, volume: int) -> dict:
+        """Send a SetVolume request (0-100). Returns a timing breakdown."""
+        timing: dict = {}
+        if self._set_volume is None:
+            raise RuntimeError("SetVolume not available in this aimdk_msgs build")
+        t0 = time.perf_counter()
+        if not self._set_volume.wait_for_service(timeout_sec=5.0):
+            raise RuntimeError("SetVolume service not available")
+        timing["service_wait_ms"] = round((time.perf_counter() - t0) * 1000, 1)
+
+        req = SetVolume.Request()
+        self._stamp(req)
+        # Field names vary between SDK builds — set whichever exists.
+        for holder in (req, getattr(req, "volume_req", None)):
+            if holder is None:
+                continue
+            for field in ("audio_volume", "volume"):
+                if hasattr(holder, field):
+                    setattr(holder, field, int(volume))
+
+        response = None
+        t0 = time.perf_counter()
+        for _ in range(8):
+            future = self._set_volume.call_async(req)
+            done = threading.Event()
+            future.add_done_callback(lambda _: done.set())
+            if done.wait(0.5) and future.done():
+                response = future.result()
+                break
+        if response is None:
+            raise RuntimeError("SetVolume timed out")
+        timing["robot_ack_ms"] = round((time.perf_counter() - t0) * 1000, 1)
+        return timing
+
+    def set_speaker(self, on: bool) -> dict:
+        """Speaker on (restore volume) or muted (volume 0), via SetVolume."""
+        volume = self._speaker_volume if on else 0
+        timing = self._send_volume(volume)
+        self.speaker_state = on
+        self.volume_state = volume
+        LOGGER.info("Speaker %s", f"ON (volume {volume})" if on else "MUTED (volume 0)")
+        return timing
+
+    def set_volume(self, level: int) -> dict:
+        """Set the speaker volume directly (0-100); 0 counts as muted."""
+        level = max(0, min(100, int(level)))
+        timing = self._send_volume(level)
+        self.volume_state = level
+        self.speaker_state = level > 0
+        if level > 0:
+            self._speaker_volume = level  # what a later "Speaker On" restores
+        LOGGER.info("Speaker volume set to %d", level)
+        return timing
+
 
 class ShowRunner:
     """Launches the full showroom sequence as a subprocess (one at a time).
@@ -316,6 +369,7 @@ class ShowRunner:
         greeting: str | None = None,
         intro: str | None = None,
         goodbye: str | None = None,
+        dance_duration: float | None = None,
     ) -> dict:
         t0 = time.perf_counter()
         with self._lock:
@@ -332,6 +386,8 @@ class ShowRunner:
                 cmd += ["--intro-text", intro]
             if goodbye:
                 cmd += ["--goodbye-text", goodbye]
+            if dance_duration is not None:
+                cmd += ["--dance-duration", str(dance_duration)]
             cmd += ["--timing-file", str(TIMING_FILE)]
             with suppress(OSError):
                 TIMING_FILE.unlink()
@@ -406,6 +462,96 @@ class PanelConfig:
             data["shortlist"] = cleaned
             self._path.write_text(json.dumps(data, indent=2))
         LOGGER.info("Shortlist saved: %d song(s)", len(cleaned))
+        return cleaned
+
+    MAX_DANCE_TIME_S = 600.0
+
+    # Two user-customizable gesture buttons (label + preset motion/area ids).
+    DEFAULT_CUSTOM_ACTIONS = [
+        {"label": "Right-hand wave", "motion": 1002, "area": 2},
+        {"label": "Both-hands heart", "motion": 1007, "area": 3},
+    ]
+
+    def get_custom_actions(self) -> list[dict]:
+        with self._lock:
+            try:
+                data = json.loads(self._path.read_text())
+            except (OSError, json.JSONDecodeError):
+                data = {}
+        stored = data.get("custom_actions")
+        out = []
+        for i, default in enumerate(self.DEFAULT_CUSTOM_ACTIONS):
+            entry = dict(default)
+            if isinstance(stored, list) and i < len(stored) and isinstance(stored[i], dict):
+                with suppress(TypeError, ValueError):
+                    entry = {
+                        "label": str(stored[i].get("label") or default["label"])[:40],
+                        "motion": int(stored[i].get("motion", default["motion"])),
+                        "area": int(stored[i].get("area", default["area"])),
+                    }
+            out.append(entry)
+        return out
+
+    def set_custom_actions(self, actions) -> list[dict]:
+        if not isinstance(actions, list) or len(actions) != len(self.DEFAULT_CUSTOM_ACTIONS):
+            raise ValueError(f"expected a list of {len(self.DEFAULT_CUSTOM_ACTIONS)} actions")
+        cleaned = []
+        for i, a in enumerate(actions):
+            if not isinstance(a, dict):
+                raise ValueError("each action must be an object")
+            default = self.DEFAULT_CUSTOM_ACTIONS[i]
+            label = str(a.get("label") or default["label"]).strip()[:40] or default["label"]
+            try:
+                motion = max(0, min(9999, int(a.get("motion", default["motion"]))))
+                area = max(0, min(99, int(a.get("area", default["area"]))))
+            except (TypeError, ValueError):
+                raise ValueError("motion and area must be numbers")
+            cleaned.append({"label": label, "motion": motion, "area": area})
+        with self._lock:
+            try:
+                data = json.loads(self._path.read_text())
+            except (OSError, json.JSONDecodeError):
+                data = {}
+            data["custom_actions"] = cleaned
+            self._path.write_text(json.dumps(data, indent=2))
+        LOGGER.info("Custom action buttons saved: %s",
+                    ", ".join(a["label"] for a in cleaned))
+        return cleaned
+
+    def get_dance_times(self) -> dict:
+        """Per-song play time in seconds ({} entries mean the show default)."""
+        with self._lock:
+            try:
+                data = json.loads(self._path.read_text())
+            except (OSError, json.JSONDecodeError):
+                return {}
+        times = data.get("dance_times", {})
+        if not isinstance(times, dict):
+            return {}
+        out = {}
+        for k, v in times.items():
+            with suppress(TypeError, ValueError):
+                out[str(k)] = float(v)
+        return out
+
+    def set_dance_times(self, times) -> dict:
+        if not isinstance(times, dict):
+            raise ValueError("times must be an object of {resource_key: seconds}")
+        cleaned = {}
+        for k, v in list(times.items())[: self.MAX_KEYS]:
+            k = str(k).strip()[: self.MAX_KEY_LEN]
+            if not k:
+                continue
+            with suppress(TypeError, ValueError):
+                cleaned[k] = min(max(float(v), 0.0), self.MAX_DANCE_TIME_S)
+        with self._lock:
+            try:
+                data = json.loads(self._path.read_text())
+            except (OSError, json.JSONDecodeError):
+                data = {}
+            data["dance_times"] = cleaned
+            self._path.write_text(json.dumps(data, indent=2))
+        LOGGER.info("Dance play times saved for %d song(s)", len(cleaned))
         return cleaned
 
     def get_seen_songs(self) -> list[str] | None:
@@ -573,14 +719,19 @@ def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str,
         # ── routes ─────────────────────────────────────────────────────────
         def do_GET(self):
             if self.path in ("/", "/index.html"):
-                return self._serve_panel()
-            if self.path == "/favicon.png":
-                return self._serve_favicon()
+                # The webpage is hosted on optimus; Cooper serves the API only.
+                return self._send_json({
+                    "ok": True,
+                    "service": "Cooper control API",
+                    "panel": "open the Cooper Control Panel page hosted on optimus",
+                })
             if self.path == "/api/status":
                 library_size, new_songs = library.counts()
                 return self._send_json({
                     "ok": True,
                     "listening": node.listening_state,
+                    "speaker": node.speaker_state,
+                    "volume": node.volume_state,
                     "show_running": shows.running(),
                     "pin_required": bool(pin),
                     "library_size": library_size,
@@ -593,12 +744,19 @@ def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str,
                 except Exception as exc:
                     return self._send_json({"ok": False, "error": str(exc)}, 502)
             if self.path == "/api/shortlist":
-                return self._send_json({"ok": True, "shortlist": config.get_shortlist()})
+                return self._send_json({"ok": True,
+                                        "shortlist": config.get_shortlist(),
+                                        "times": config.get_dance_times()})
             if self.path == "/api/actions":
-                return self._send_json({"ok": True, "actions": [
+                actions = [
                     {"key": k, "label": a["label"], "emoji": a["emoji"]}
                     for k, a in ACTIONS.items()
-                ]})
+                ]
+                for i, a in enumerate(config.get_custom_actions(), start=1):
+                    actions.append({"key": f"custom{i}", "label": a["label"],
+                                    "emoji": "⭐", "custom": True,
+                                    "motion": a["motion"], "area": a["area"]})
+                return self._send_json({"ok": True, "actions": actions})
             return self._send_json({"ok": False, "error": "not found"}, 404)
 
         def do_POST(self):
@@ -628,15 +786,54 @@ def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str,
                     timing["server_total_ms"] = server_ms()
                     return self._send_json({"ok": True, "listening": listen, "timing": timing})
 
+                if self.path == "/api/speaker":
+                    if "on" not in body:
+                        return self._send_json({"ok": False, "error": "missing 'on'"}, 400)
+                    on = bool(body["on"])
+                    timing = node.set_speaker(on)
+                    timing["server_total_ms"] = server_ms()
+                    return self._send_json({"ok": True, "speaker": on,
+                                            "volume": node.volume_state, "timing": timing})
+
+                if self.path == "/api/volume":
+                    if "level" not in body:
+                        return self._send_json({"ok": False, "error": "missing 'level'"}, 400)
+                    try:
+                        level = int(body["level"])
+                    except (TypeError, ValueError):
+                        return self._send_json({"ok": False, "error": "level must be 0-100"}, 400)
+                    timing = node.set_volume(level)
+                    timing["server_total_ms"] = server_ms()
+                    return self._send_json({"ok": True, "volume": node.volume_state,
+                                            "speaker": node.speaker_state, "timing": timing})
+
+                if self.path == "/api/custom_actions":
+                    saved = config.set_custom_actions(body.get("actions"))
+                    return self._send_json({"ok": True, "actions": saved})
+
                 if self.path == "/api/shortlist":
-                    saved = config.set_shortlist(body.get("shortlist"))
-                    return self._send_json({"ok": True, "shortlist": saved})
+                    result = {}
+                    if "shortlist" in body:
+                        result["shortlist"] = config.set_shortlist(body.get("shortlist"))
+                    if "times" in body:
+                        result["times"] = config.set_dance_times(body.get("times"))
+                    if not result:
+                        return self._send_json(
+                            {"ok": False, "error": "missing 'shortlist' or 'times'"}, 400)
+                    return self._send_json({"ok": True, **result})
 
                 if self.path == "/api/songs_seen":
                     return self._send_json({"ok": True, "seen": library.mark_all_seen()})
 
                 if self.path == "/api/action":
-                    action = ACTIONS.get(str(body.get("action") or ""))
+                    key = str(body.get("action") or "")
+                    action = ACTIONS.get(key)
+                    if action is None and key.startswith("custom"):
+                        customs = config.get_custom_actions()
+                        with suppress(TypeError, ValueError, IndexError):
+                            idx = int(key[6:]) - 1
+                            if 0 <= idx < len(customs):
+                                action = customs[idx]
                     if action is None:
                         return self._send_json({"ok": False, "error": "unknown action"}, 400)
                     if shows.running():
@@ -649,12 +846,18 @@ def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str,
 
                 if self.path == "/api/show":
                     greeting, intro, goodbye = resolve_messages(body)
+                    dance_key = str(body.get("dance_key") or "") or None
+                    # Per-song play time from the shared config (None = default).
+                    dance_duration = None
+                    if dance_key:
+                        dance_duration = config.get_dance_times().get(dance_key)
                     timing = shows.start(
-                        dance_key=str(body.get("dance_key") or "") or None,
+                        dance_key=dance_key,
                         unmute_after=bool(body.get("unmute_after", False)),
                         greeting=greeting,
                         intro=intro,
                         goodbye=goodbye,
+                        dance_duration=dance_duration,
                     )
                     timing["server_total_ms"] = server_ms()
                     return self._send_json({"ok": True, "show_running": True,
@@ -665,29 +868,6 @@ def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str,
                 LOGGER.exception("POST %s failed", self.path)
                 return self._send_json({"ok": False, "error": str(exc)}, 502)
 
-        def _serve_favicon(self):
-            body, ctype = FALLBACK_ICON_SVG, "image/svg+xml"
-            if FAVICON_FILE.is_file():
-                with suppress(OSError):
-                    body, ctype = FAVICON_FILE.read_bytes(), "image/png"
-            self.send_response(200)
-            self.send_header("Content-Type", ctype)
-            self.send_header("Content-Length", str(len(body)))
-            self.send_header("Cache-Control", "max-age=3600")
-            self.end_headers()
-            self.wfile.write(body)
-
-        def _serve_panel(self):
-            try:
-                body = PANEL_HTML_FILE.read_bytes()
-            except OSError:
-                body = b"<h1>Cooper Panel</h1><p>cooper_control_panel.html not found next to the server script.</p>"
-            self.send_response(200)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
-
     return Handler
 
 
@@ -696,6 +876,9 @@ def main() -> None:
     parser.add_argument("--port", type=int, default=8080)
     parser.add_argument("--bind", default="0.0.0.0")
     parser.add_argument("--mute-service", default=DEFAULT_SET_MUTE_SVC)
+    parser.add_argument("--speaker-volume", type=int, default=70,
+                        help="volume (1-100) restored when the speaker is "
+                             "switched back on after a mute")
     parser.add_argument("--pin", default=os.getenv("COOPER_PANEL_PIN", ""),
                         help="PIN required for all control actions "
                              "(env COOPER_PANEL_PIN; empty = no PIN)")
@@ -716,7 +899,8 @@ def main() -> None:
     )
 
     rclpy.init()
-    node = CooperPanelNode(mute_service=args.mute_service)
+    node = CooperPanelNode(mute_service=args.mute_service,
+                           speaker_volume=args.speaker_volume)
     executor = MultiThreadedExecutor()
     executor.add_node(node)
     spin_thread = threading.Thread(target=executor.spin, name="ros-spin", daemon=True)
