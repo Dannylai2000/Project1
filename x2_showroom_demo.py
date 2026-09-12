@@ -279,11 +279,11 @@ class IntroSequenceNode(Node):
 
     # ── Speaker volume ──────────────────────────────────────────────────────
 
-    def _ensure_volume(self) -> None:
-        """Set the speaker volume so speech and dance music are audible.
+    def _set_volume_level(self, level: int, note: str = "") -> None:
+        """Set the speaker volume (0-100). Also used with 0 to silence the
+        robot's own mic-switch announcements.
 
-        Guards against a speaker left muted (volume 0) from earlier panel
-        use. Failure only logs a warning — the show carries on regardless.
+        Failure only logs a warning — the show carries on regardless.
         """
         if self._set_volume is None:
             return
@@ -300,7 +300,7 @@ class IntroSequenceNode(Node):
                 continue
             for field in ("audio_volume", "volume"):
                 if hasattr(holder, field):
-                    setattr(holder, field, int(self._volume))
+                    setattr(holder, field, int(level))
 
         response = None
         for _ in range(8):
@@ -313,7 +313,8 @@ class IntroSequenceNode(Node):
         if response is None:
             LOGGER.warning("SetVolume timed out — speaker volume unchanged")
             return
-        LOGGER.info("Speaker volume set to %d for the show", self._volume)
+        LOGGER.info("Speaker volume set to %d%s", level,
+                    f" ({note})" if note else "")
 
     # ── Mic source switch (built-in ↔ external) ────────────────────────────
 
@@ -700,23 +701,26 @@ class IntroSequenceNode(Node):
 
     def _run_sequence(self) -> None:
         try:
-            self.get_logger().info("=== STEP 0a: SPEAKER VOLUME ===")
-            self._ensure_volume()
-
             if self._mute_enabled:
                 self.get_logger().info("=== STEP 0: MUTE MIC (stop listening) ===")
                 self._set_listening(False)
 
                 # On builds where the mute silences ALL audio: switch to the
                 # (unconnected) external mic and unmute, so speech and music
-                # play while the assistant still hears nothing.
+                # play while the assistant still hears nothing. The switch is
+                # done at volume 0 so the robot's own "switching microphone"
+                # announcement is not heard by the audience.
                 if self._mic_source_service:
-                    self.get_logger().info("=== STEP 0b: SWITCH TO EXTERNAL MIC ===")
+                    self.get_logger().info("=== STEP 0b: SILENT SWITCH TO EXTERNAL MIC ===")
+                    self._set_volume_level(0, "silence the mic-switch announcement")
                     if self._set_mic_source(self._mic_external, "external"):
                         self._mic_switched = True
                         self.get_logger().info(
                             "=== STEP 0c: UNMUTE FOR PERFORMANCE (external mic idle) ===")
                         self._set_listening(True)
+
+            self.get_logger().info("=== STEP 0d: SPEAKER VOLUME ON ===")
+            self._set_volume_level(self._volume, "show volume")
 
             # Greeting speech starts immediately; the wave overlaps it.
             self.get_logger().info("=== STEP 1: GREETING + WAVE ===")
@@ -759,15 +763,17 @@ class IntroSequenceNode(Node):
         finally:
             self._mark("show_complete")
             if self._mic_switched:
-                self.get_logger().info("=== END: BACK TO BUILT-IN MIC ===")
+                # Silent switch back: volume 0 → built-in mic → stay muted →
+                # restore the volume so the next use is audible.
+                self.get_logger().info("=== END: SILENT SWITCH BACK TO BUILT-IN MIC ===")
+                self._set_volume_level(0, "silence the mic-switch announcement")
                 self._set_mic_source(self._mic_internal, "built-in")
-            if self._mute_enabled:
-                if self._unmute_after:
-                    self.get_logger().info("Restoring listening (unmute)")
-                    self._set_listening(True)
-                elif self._mic_switched:
-                    self.get_logger().info("Re-muting after the performance")
-                    self._set_listening(False)
+                self.get_logger().info("Re-muting after the performance")
+                self._set_listening(False)
+                self._set_volume_level(self._volume, "restore volume")
+            if self._mute_enabled and self._unmute_after:
+                self.get_logger().info("Restoring listening (unmute)")
+                self._set_listening(True)
             self._shutdown_event.set()
 
 

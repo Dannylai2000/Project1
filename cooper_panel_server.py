@@ -55,11 +55,12 @@ try:
 except ImportError:  # pragma: no cover
     SetVolume = None
 
-# Dynamic message loading for the battery topic (type varies by SDK build).
+# Dynamic message/service loading (types vary by SDK build).
 try:
-    from rosidl_runtime_py.utilities import get_message
+    from rosidl_runtime_py.utilities import get_message, get_service
 except ImportError:  # pragma: no cover
     get_message = None
+    get_service = None
 
 
 LOGGER = logging.getLogger("cooper_panel")
@@ -67,7 +68,7 @@ LOGGER = logging.getLogger("cooper_panel")
 # Bumped on every change, in lockstep with PANEL_VERSION in
 # cooper_control_panel.html. The panel shows both and flags a mismatch,
 # so a half-deployed update is visible at a glance.
-SERVER_VERSION = "2026.09.12-3"
+SERVER_VERSION = "2026.09.12-4"
 
 DEFAULT_GET_RESOURCES_SVC  = "/aimdk_5Fmsgs/srv/GetRobotResources"
 DEFAULT_EXECUTE_ACTION_SVC = "/aimdk_5Fmsgs/srv/ExecuteActionResource"
@@ -103,9 +104,12 @@ class CooperPanelNode(Node):
     """ROS2 side of the panel: talks to the AimDK services."""
 
     def __init__(self, mute_service: str, speaker_volume: int = 70,
-                 battery_topic: str = "") -> None:
+                 battery_topic: str = "", mic_source_service: str = "",
+                 mic_internal: int = 1) -> None:
         super().__init__("cooper_panel")
         self._speaker_volume = max(1, min(100, int(speaker_volume)))
+        self._mic_source_service = mic_source_service
+        self._mic_internal = int(mic_internal)
 
         # Live battery readout (auto-discovered BMS/battery topic).
         self.battery: dict | None = None
@@ -172,9 +176,16 @@ class CooperPanelNode(Node):
                 break
         if candidate is None:
             return False
-        msg_type = get_message(candidate[1])
-        self.create_subscription(msg_type, candidate[0], self._on_battery, 10,
-                                 callback_group=self._cbg)
+        try:
+            msg_type = get_message(candidate[1])
+            self.create_subscription(msg_type, candidate[0], self._on_battery, 10,
+                                     callback_group=self._cbg)
+        except Exception as exc:
+            # Permanent (e.g. the type's Python package is not importable) —
+            # log loudly and stop retrying; the panel keeps its placeholder.
+            LOGGER.warning("Battery: found topic %s (type %s) but cannot "
+                           "subscribe: %s", candidate[0], candidate[1], exc)
+            return True
         LOGGER.info("Battery: subscribed to %s (%s)", candidate[0], candidate[1])
         return True
 
@@ -292,11 +303,89 @@ class CooperPanelNode(Node):
             raise RuntimeError(f"dance rejected (code={code}): {msg}")
         return {"code": code, "message": msg, "timing": timing}
 
+    def _normalize_mic_source(self) -> None:
+        """Silently switch back to the built-in mic before enabling listening.
+
+        A show leaves the external (idle) mic selected; unmuting on it would
+        leave the assistant deaf. The switch is done at volume 0 so the
+        robot's own switch announcement is not heard. Best-effort — any
+        failure is logged and the unmute proceeds regardless.
+        """
+        if not self._mic_source_service or get_service is None:
+            return
+        try:
+            srv_type = None
+            for name, types in self.get_service_names_and_types():
+                if name == self._mic_source_service and types:
+                    srv_type = get_service(types[0])
+                    break
+            if srv_type is None:
+                LOGGER.warning("Mic-source service %s not found — skipping "
+                               "mic normalization", self._mic_source_service)
+                return
+            client = self.create_client(srv_type, self._mic_source_service,
+                                        callback_group=self._cbg)
+            if not client.wait_for_service(timeout_sec=2.0):
+                LOGGER.warning("Mic-source service not responding — skipping")
+                return
+
+            req = srv_type.Request()
+            self._stamp(req)
+            fields = {}
+            with suppress(Exception):
+                fields = dict(req.get_fields_and_field_types())
+            applied = None
+            for cand in ("audio_stream_id", "mic_source", "source", "stream_id",
+                         "audio_source", "channel", "type", "value", "id"):
+                if cand in fields:
+                    with suppress(Exception):
+                        setattr(req, cand, self._mic_internal)
+                        applied = cand
+                        break
+            if applied is None:
+                for fname, ftype in fields.items():
+                    if any(k in fname.lower() for k in ("source", "stream", "mic")) \
+                            and "int" in ftype:
+                        with suppress(Exception):
+                            setattr(req, fname, self._mic_internal)
+                            applied = fname
+                            break
+            if applied is None:
+                LOGGER.warning("No usable source field on %s request; fields: %s",
+                               self._mic_source_service, fields)
+                return
+
+            with suppress(Exception):
+                self._send_volume(0)  # silence the switch announcement
+            response = None
+            for _ in range(8):
+                future = client.call_async(req)
+                done = threading.Event()
+                future.add_done_callback(lambda _: done.set())
+                if done.wait(0.5) and future.done():
+                    response = future.result()
+                    break
+            if response is None:
+                LOGGER.warning("Mic normalization timed out")
+            else:
+                LOGGER.info("Mic source normalized to built-in (%s=%d)",
+                            applied, self._mic_internal)
+        except Exception:
+            LOGGER.exception("Mic normalization failed")
+        finally:
+            with suppress(Exception):
+                self._send_volume(self._speaker_volume)
+                self.volume_state = self._speaker_volume
+                self.speaker_state = True
+
     def set_listening(self, listen: bool) -> dict:
         """Unmute (listen=True) or mute (listen=False) Cooper's microphones.
 
         Returns a timing breakdown for the performance diagnostics.
         """
+        if listen:
+            # Make sure the built-in mic is active before listening resumes.
+            self._normalize_mic_source()
         timing: dict = {}
         if self._set_mute is None:
             raise RuntimeError("SetMute not available in this aimdk_msgs build")
@@ -1055,7 +1144,9 @@ def main() -> None:
     rclpy.init()
     node = CooperPanelNode(mute_service=args.mute_service,
                            speaker_volume=args.speaker_volume,
-                           battery_topic=args.battery_topic)
+                           battery_topic=args.battery_topic,
+                           mic_source_service=args.mic_source_service,
+                           mic_internal=args.mic_internal)
     executor = MultiThreadedExecutor()
     executor.add_node(node)
     spin_thread = threading.Thread(target=executor.spin, name="ros-spin", daemon=True)

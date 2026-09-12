@@ -494,9 +494,12 @@
 
       <h3>Audio — microphone and speaker</h3>
       <p><b>🎙 Microphone On / Off</b> — Off means Cooper ignores surrounding
-      conversation and will not answer the audience. During a show the script
-      controls the microphone itself: muted at the start, and it stays muted
-      afterwards unless "listen again after show" is ticked.
+      conversation and will not answer the audience. Turning it On first
+      switches Cooper back to the built-in microphone automatically (done
+      silently), in case a show left the external mic selected. During a
+      show the script controls the microphone itself: muted at the start,
+      and it stays muted afterwards unless "listen again after show" is
+      ticked.
       <br><b>🔊 Speaker On / Muted</b> — Muted sets Cooper's volume to zero,
       so no speech or sound comes out (useful for a silent rehearsal); On
       restores the normal volume.
@@ -657,7 +660,7 @@
 
   // Bumped on every change, in lockstep with SERVER_VERSION in
   // cooper_panel_server.py. Shown top-right; amber = page and API differ.
-  const PANEL_VERSION = "2026.09.12-3";
+  const PANEL_VERSION = "2026.09.12-4";
   $("verChip").textContent = "v" + PANEL_VERSION;
 
   function status(msg, cls = "") {
