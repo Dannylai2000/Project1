@@ -68,7 +68,18 @@ LOGGER = logging.getLogger("cooper_panel")
 # Bumped on every change, in lockstep with PANEL_VERSION in
 # cooper_control_panel.html. The panel shows both and flags a mismatch,
 # so a half-deployed update is visible at a glance.
-SERVER_VERSION = "2026.09.12-4"
+SERVER_VERSION = "2026.09.12-5"
+
+# Protobuf classes to try for decoding the AimRT-wrapped battery message
+# (ros2_plugin_proto/msg/RosMsgWrapper carries a serialized
+# aimdk.protocol.BmsState in its data field).
+BATTERY_PB_CANDIDATES = [
+    ("aimdk.protocol.bms_pb2", "BmsState"),
+    ("aimdk.protocol.hal.bms_pb2", "BmsState"),
+    ("aimdk.protocol.hal.bms.bms_pb2", "BmsState"),
+    ("aimdk.protocol.common.bms_pb2", "BmsState"),
+    ("aimdk.protocol.battery_pb2", "BmsState"),
+]
 
 DEFAULT_GET_RESOURCES_SVC  = "/aimdk_5Fmsgs/srv/GetRobotResources"
 DEFAULT_EXECUTE_ACTION_SVC = "/aimdk_5Fmsgs/srv/ExecuteActionResource"
@@ -115,6 +126,10 @@ class CooperPanelNode(Node):
         self.battery: dict | None = None
         self._battery_ts = 0.0
         self._battery_warned = False
+        self._battery_pb_cls = None
+        self._battery_pb_tried = False
+        self.battery_pb_module = ""
+        self.battery_pb_class = "BmsState"
         self._battery_topic_arg = battery_topic
         threading.Thread(target=self._battery_watch, name="battery-watch",
                          daemon=True).start()
@@ -189,9 +204,40 @@ class CooperPanelNode(Node):
         LOGGER.info("Battery: subscribed to %s (%s)", candidate[0], candidate[1])
         return True
 
+    def _battery_pb(self):
+        """Resolve the protobuf class for the wrapped BmsState, once."""
+        if self._battery_pb_tried:
+            return self._battery_pb_cls
+        self._battery_pb_tried = True
+        import importlib
+        candidates = list(BATTERY_PB_CANDIDATES)
+        if self.battery_pb_module:
+            candidates.insert(0, (self.battery_pb_module, self.battery_pb_class))
+        for mod, cls in candidates:
+            try:
+                self._battery_pb_cls = getattr(importlib.import_module(mod), cls)
+                LOGGER.info("Battery: protobuf decoder %s.%s", mod, cls)
+                return self._battery_pb_cls
+            except Exception:
+                continue
+        LOGGER.warning("Battery: no protobuf class for the wrapped BmsState "
+                       "found — set --battery-pb-module (and, if needed, "
+                       "--battery-pb-class)")
+        return None
+
     def _on_battery(self, msg) -> None:
         with suppress(Exception):
             parsed = battery_fields(msg)
+            # AimRT wrapper: the real message is a serialized protobuf in
+            # the wrapper's data field — unwrap and re-parse.
+            payload = getattr(msg, "data", None)
+            if parsed.get("percent") is None and payload is not None:
+                cls = self._battery_pb()
+                if cls is not None:
+                    with suppress(Exception):
+                        pb = cls()
+                        pb.ParseFromString(bytes(payload))
+                        parsed = battery_fields(pb)
             if parsed.get("percent") is None and not self._battery_warned:
                 # Log the real shape once so the parser can be matched to it
                 # (e.g. protobuf-bridged wrappers carry only raw bytes).
@@ -1114,6 +1160,11 @@ def main() -> None:
     parser.add_argument("--battery-topic", default="",
                         help="battery/BMS topic to subscribe to (default: "
                              "auto-discover any topic named battery/bms)")
+    parser.add_argument("--battery-pb-module", default="",
+                        help="python module of the protobuf BmsState used "
+                             "inside the AimRT wrapper (auto-tried candidates "
+                             "otherwise)")
+    parser.add_argument("--battery-pb-class", default="BmsState")
     parser.add_argument("--mic-source-service",
                         default="/aimdk_5Fmsgs/srv/SetMicSourceRequest",
                         help="mic source switch service, forwarded to every "
@@ -1147,6 +1198,8 @@ def main() -> None:
                            battery_topic=args.battery_topic,
                            mic_source_service=args.mic_source_service,
                            mic_internal=args.mic_internal)
+    node.battery_pb_module = args.battery_pb_module
+    node.battery_pb_class = args.battery_pb_class
     executor = MultiThreadedExecutor()
     executor.add_node(node)
     spin_thread = threading.Thread(target=executor.spin, name="ros-spin", daemon=True)

@@ -20,6 +20,10 @@ export COOPER_PANEL_PIN="${COOPER_PANEL_PIN:-}"
 source /opt/ros/humble/setup.bash
 # shellcheck disable=SC1091
 source "$HOME/aimdk/install/setup.bash"
+# Optional extra workspace (e.g. the one providing ros2_plugin_proto for the
+# battery topic): create deploy/extra_setup.bash with its source line.
+# shellcheck disable=SC1091
+[ -f "$APP_DIR/deploy/extra_setup.bash" ] && . "$APP_DIR/deploy/extra_setup.bash"
 
 while true; do
   python3 cooper_panel_server.py --port "$PORT"

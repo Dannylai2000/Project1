@@ -64,7 +64,7 @@ Description=Cooper Control Panel API
 [Service]
 WorkingDirectory=$APP_DIR
 Environment=COOPER_PANEL_PIN=$PIN
-ExecStart=/bin/bash -lc 'source $ROS_SETUP && source $AIMDK_SETUP && exec python3 cooper_panel_server.py --port $PORT$IDLE_ARG'
+ExecStart=/bin/bash -lc 'source $ROS_SETUP && source $AIMDK_SETUP && if [ -f $APP_DIR/deploy/extra_setup.bash ]; then source $APP_DIR/deploy/extra_setup.bash; fi; exec python3 cooper_panel_server.py --port $PORT$IDLE_ARG'
 
 [Install]
 WantedBy=default.target
