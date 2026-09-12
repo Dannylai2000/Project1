@@ -90,11 +90,6 @@ Features:
 - **PIN protection** — all control actions (listening, dance, show)
   require a PIN when the server is started with one. The page asks for it
   in ⚙ settings and remembers it.
-- **Battery readout** — the server auto-discovers Cooper's battery/BMS
-  topic (any topic named battery/bms; `--battery-topic` to pin one) and
-  the header shows a live 🔋 chip with the charge percentage (⚡ while
-  charging; amber < 30%, red < 15%), hidden until data arrives and when
-  readings go stale.
 - **Live status** — the page polls Cooper every 3 seconds: connection dot,
   listening state, and show-in-progress (buttons lock while a show runs).
   The server also mirrors the show's mic behaviour, so the listening
