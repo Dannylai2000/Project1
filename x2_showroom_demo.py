@@ -74,6 +74,7 @@ DEFAULT_SET_MC_ACTION_SVC  = "/aimdk_5Fmsgs/srv/SetMcAction"
 DEFAULT_SET_MUTE_SVC       = "/aimdk_5Fmsgs/srv/SetMute"
 DEFAULT_PLAY_EMOJI_SVC     = "/aimdk_5Fmsgs/srv/PlayEmoji"
 DEFAULT_SET_VOLUME_SVC     = "/aimdk_5Fmsgs/srv/SetVolume"
+DEFAULT_MIC_SOURCE_SVC     = "/aimdk_5Fmsgs/srv/SetMicSourceRequest"
 
 # Speaker volume set at show start so speech and dance music are audible
 # even if the speaker was muted earlier (-1 = leave the volume untouched).
@@ -123,7 +124,7 @@ class IntroSequenceNode(Node):
         timing_file: str = "",
         emoji_id: int = DEFAULT_EMOJI_ID,
         volume: int = DEFAULT_SHOW_VOLUME,
-        mic_source_service: str = "",
+        mic_source_service: str = DEFAULT_MIC_SOURCE_SVC,
         mic_source_field: str = "audio_stream_id",
         mic_external: int = 2,
         mic_internal: int = 1,
@@ -348,17 +349,48 @@ class IntroSequenceNode(Node):
             req = srv_type.Request()
             with suppress(Exception):
                 self._stamp(req)
-            applied = False
-            for holder in (req, getattr(req, "audio_req", None),
-                           getattr(req, "mic_req", None)):
-                if holder is not None and hasattr(holder, self._mic_source_field):
-                    setattr(holder, self._mic_source_field, int(value))
-                    applied = True
-            if not applied:
-                LOGGER.warning("Field %r not found on %s request — check "
-                               "--mic-source-field", self._mic_source_field,
-                               self._mic_source_service)
+
+            # Find the field carrying the source id: configured name first,
+            # then common names, then any int field mentioning source/stream/mic
+            # — on the request itself or one level of nested message.
+            def apply_to(holder) -> str | None:
+                fields = {}
+                with suppress(Exception):
+                    fields = dict(holder.get_fields_and_field_types())
+                candidates = [self._mic_source_field, "audio_stream_id",
+                              "mic_source", "source", "stream_id",
+                              "audio_source", "channel", "type", "value", "id"]
+                for cand in candidates:
+                    if cand in fields:
+                        with suppress(Exception):
+                            setattr(holder, cand, int(value))
+                            return cand
+                for fname, ftype in fields.items():
+                    if any(k in fname.lower() for k in ("source", "stream", "mic")) \
+                            and "int" in ftype:
+                        with suppress(Exception):
+                            setattr(holder, fname, int(value))
+                            return fname
+                return None
+
+            applied = apply_to(req)
+            if applied is None:
+                for fname in list(getattr(req, "get_fields_and_field_types",
+                                          dict)() or {}):
+                    sub = getattr(req, fname, None)
+                    if sub is not None and hasattr(sub, "get_fields_and_field_types"):
+                        applied = apply_to(sub)
+                        if applied:
+                            applied = f"{fname}.{applied}"
+                            break
+            if applied is None:
+                with suppress(Exception):
+                    LOGGER.warning("No usable source field on %s request; "
+                                   "fields: %s — set --mic-source-field",
+                                   self._mic_source_service,
+                                   dict(req.get_fields_and_field_types()))
                 return False
+            LOGGER.info("Mic-source request field: %s", applied)
 
             response = None
             for _ in range(8):
@@ -770,11 +802,11 @@ def main() -> None:
     parser.add_argument("--volume", type=int, default=DEFAULT_SHOW_VOLUME,
                         help="speaker volume (0-100) set at show start so the "
                              "show is audible; -1 = leave the volume unchanged")
-    parser.add_argument("--mic-source-service", default="",
-                        help="service that switches the mic source; when set, "
-                             "the show mutes, switches to the external mic, "
-                             "unmutes for the performance, then switches back "
-                             "and re-mutes at the end")
+    parser.add_argument("--mic-source-service", default=DEFAULT_MIC_SOURCE_SVC,
+                        help="service that switches the mic source; the show "
+                             "mutes, switches to the external mic, unmutes for "
+                             "the performance, then switches back and re-mutes "
+                             "at the end ('' disables the workaround)")
     parser.add_argument("--mic-source-field", default="audio_stream_id",
                         help="request field holding the source id")
     parser.add_argument("--mic-external", type=int, default=2,
