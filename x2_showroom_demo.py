@@ -57,6 +57,12 @@ try:
 except ImportError:  # pragma: no cover
     SetVolume = None
 
+# Dynamic service loading for the mic-source switch (name varies by build).
+try:
+    from rosidl_runtime_py.utilities import get_service
+except ImportError:  # pragma: no cover
+    get_service = None
+
 
 LOGGER = logging.getLogger("x2_intro_sequence")
 
@@ -117,6 +123,10 @@ class IntroSequenceNode(Node):
         timing_file: str = "",
         emoji_id: int = DEFAULT_EMOJI_ID,
         volume: int = DEFAULT_SHOW_VOLUME,
+        mic_source_service: str = "",
+        mic_source_field: str = "audio_stream_id",
+        mic_external: int = 2,
+        mic_internal: int = 1,
     ) -> None:
         super().__init__("x2_intro_sequence")
 
@@ -134,6 +144,15 @@ class IntroSequenceNode(Node):
         self._greeting_text = greeting_text or GREETING_TEXT
         self._intro_text = intro_text or INTRO_TEXT
         self._goodbye_text = goodbye_text or GOODBY_TEXT
+
+        # Mic-source workaround for builds where muting kills all audio:
+        # mute → switch to external mic → UNMUTE for the performance →
+        # switch back to the built-in mic → mute again at the end.
+        self._mic_source_service = mic_source_service
+        self._mic_source_field = mic_source_field
+        self._mic_external = int(mic_external)
+        self._mic_internal = int(mic_internal)
+        self._mic_switched = False
 
         # ── PlayTts ────────────────────────────────────────────────────────
         self._tts = self.create_client(PlayTts, tts_service, callback_group=self._cbg)
@@ -294,6 +313,70 @@ class IntroSequenceNode(Node):
             LOGGER.warning("SetVolume timed out — speaker volume unchanged")
             return
         LOGGER.info("Speaker volume set to %d for the show", self._volume)
+
+    # ── Mic source switch (built-in ↔ external) ────────────────────────────
+
+    def _set_mic_source(self, value: int, note: str) -> bool:
+        """Switch the microphone source via the configured service.
+
+        The service name comes from --mic-source-service and its type is
+        resolved dynamically from the ROS graph, so SDK naming differences
+        don't matter. Returns True only when the robot accepted the switch.
+        """
+        if not self._mic_source_service:
+            return False
+        if get_service is None:
+            LOGGER.warning("rosidl_runtime_py unavailable — cannot switch mic source")
+            return False
+        try:
+            srv_type = None
+            for name, types in self.get_service_names_and_types():
+                if name == self._mic_source_service and types:
+                    srv_type = get_service(types[0])
+                    break
+            if srv_type is None:
+                LOGGER.warning("Mic-source service %s not found on the robot",
+                               self._mic_source_service)
+                return False
+            client = self.create_client(srv_type, self._mic_source_service,
+                                        callback_group=self._cbg)
+            if not client.wait_for_service(timeout_sec=2.0):
+                LOGGER.warning("Mic-source service %s not responding",
+                               self._mic_source_service)
+                return False
+
+            req = srv_type.Request()
+            with suppress(Exception):
+                self._stamp(req)
+            applied = False
+            for holder in (req, getattr(req, "audio_req", None),
+                           getattr(req, "mic_req", None)):
+                if holder is not None and hasattr(holder, self._mic_source_field):
+                    setattr(holder, self._mic_source_field, int(value))
+                    applied = True
+            if not applied:
+                LOGGER.warning("Field %r not found on %s request — check "
+                               "--mic-source-field", self._mic_source_field,
+                               self._mic_source_service)
+                return False
+
+            response = None
+            for _ in range(8):
+                future = client.call_async(req)
+                done = threading.Event()
+                future.add_done_callback(lambda _: done.set())
+                if done.wait(0.5) and future.done():
+                    response = future.result()
+                    break
+            if response is None:
+                LOGGER.warning("Mic-source switch to %s timed out", note)
+                return False
+            LOGGER.info("Mic source switched to %s (%s=%d)", note,
+                        self._mic_source_field, value)
+            return True
+        except Exception:
+            LOGGER.exception("Mic-source switch failed")
+            return False
 
     # ── Microphone mute (listening on/off) ─────────────────────────────────
 
@@ -592,6 +675,17 @@ class IntroSequenceNode(Node):
                 self.get_logger().info("=== STEP 0: MUTE MIC (stop listening) ===")
                 self._set_listening(False)
 
+                # On builds where the mute silences ALL audio: switch to the
+                # (unconnected) external mic and unmute, so speech and music
+                # play while the assistant still hears nothing.
+                if self._mic_source_service:
+                    self.get_logger().info("=== STEP 0b: SWITCH TO EXTERNAL MIC ===")
+                    if self._set_mic_source(self._mic_external, "external"):
+                        self._mic_switched = True
+                        self.get_logger().info(
+                            "=== STEP 0c: UNMUTE FOR PERFORMANCE (external mic idle) ===")
+                        self._set_listening(True)
+
             # Greeting speech starts immediately; the wave overlaps it.
             self.get_logger().info("=== STEP 1: GREETING + WAVE ===")
             self._play_emoji("welcome")
@@ -632,9 +726,16 @@ class IntroSequenceNode(Node):
             LOGGER.exception("Sequence failed unexpectedly")
         finally:
             self._mark("show_complete")
-            if self._mute_enabled and self._unmute_after:
-                self.get_logger().info("Restoring listening (unmute)")
-                self._set_listening(True)
+            if self._mic_switched:
+                self.get_logger().info("=== END: BACK TO BUILT-IN MIC ===")
+                self._set_mic_source(self._mic_internal, "built-in")
+            if self._mute_enabled:
+                if self._unmute_after:
+                    self.get_logger().info("Restoring listening (unmute)")
+                    self._set_listening(True)
+                elif self._mic_switched:
+                    self.get_logger().info("Re-muting after the performance")
+                    self._set_listening(False)
             self._shutdown_event.set()
 
 
@@ -669,6 +770,17 @@ def main() -> None:
     parser.add_argument("--volume", type=int, default=DEFAULT_SHOW_VOLUME,
                         help="speaker volume (0-100) set at show start so the "
                              "show is audible; -1 = leave the volume unchanged")
+    parser.add_argument("--mic-source-service", default="",
+                        help="service that switches the mic source; when set, "
+                             "the show mutes, switches to the external mic, "
+                             "unmutes for the performance, then switches back "
+                             "and re-mutes at the end")
+    parser.add_argument("--mic-source-field", default="audio_stream_id",
+                        help="request field holding the source id")
+    parser.add_argument("--mic-external", type=int, default=2,
+                        help="source id of the external mic (AimDK: 2)")
+    parser.add_argument("--mic-internal", type=int, default=1,
+                        help="source id of the built-in mic (AimDK: 1)")
     parser.add_argument("--log-level", default=os.getenv("LOG_LEVEL", "INFO"))
     args = parser.parse_args()
 
@@ -691,6 +803,10 @@ def main() -> None:
         timing_file=args.timing_file,
         emoji_id=args.emoji_id,
         volume=args.volume,
+        mic_source_service=args.mic_source_service,
+        mic_source_field=args.mic_source_field,
+        mic_external=args.mic_external,
+        mic_internal=args.mic_internal,
     )
     executor = MultiThreadedExecutor()
     executor.add_node(node)

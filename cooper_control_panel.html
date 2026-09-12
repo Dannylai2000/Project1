@@ -41,7 +41,8 @@
   }
 
   /* Header */
-  header { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+  header { display: flex; align-items: center; gap: 10px; margin-bottom: 6px;
+           position: relative; }
   header h1 { font-size: 20px; margin: 0; flex: 1;
               display: flex; align-items: center; gap: 9px; }
   header .logo { width: 32px; height: 32px; flex: none; }
@@ -57,8 +58,10 @@
     border-radius: 10px; padding: 8px 12px; font-size: 14px; cursor: pointer;
   }
   .batt {
-    font-size: 14px; font-weight: 650; padding: 6px 10px; border-radius: 10px;
-    background: var(--panel); border: 1px solid var(--edge);
+    font-size: 15px; font-weight: 650; padding: 6px 12px; border-radius: 10px;
+    background: var(--panel); border: 1px solid var(--edge); color: var(--dim);
+    position: absolute; left: 50%; transform: translateX(-50%); top: 0;
+    white-space: nowrap;
   }
   .batt.ok { color: var(--ok); }
   .batt.warn { color: var(--warn); border-color: var(--warn); }
@@ -258,7 +261,7 @@
       <circle cx="39" cy="31.5" r="4.4" fill="#fff"/>
       <rect x="26" y="45" width="12" height="4.5" rx="2.2" fill="#7a4d26"/>
     </svg> Cooper</h1>
-    <span class="batt" id="battChip" hidden title="Cooper's battery">🔋 —</span>
+    <span class="batt" id="battChip" title="Waiting for battery data from Cooper">🔋 …</span>
     <button id="helpBtn" class="hbtn" title="How to use this panel">❓ Help</button>
     <button id="gear" title="Change IP address, port, or PIN">⚙ Settings</button>
     <span class="conn"><span class="dot" id="connDot"></span><span id="connText">connecting…</span></span>
@@ -654,7 +657,7 @@
 
   // Bumped on every change, in lockstep with SERVER_VERSION in
   // cooper_panel_server.py. Shown top-right; amber = page and API differ.
-  const PANEL_VERSION = "2026.09.12-1";
+  const PANEL_VERSION = "2026.09.12-2";
   $("verChip").textContent = "v" + PANEL_VERSION;
 
   function status(msg, cls = "") {
@@ -1027,7 +1030,6 @@
     // Live battery readout (from Cooper's BMS topic, via 3 s polling).
     const b = s.battery;
     if (b && b.percent != null && (b.age_s == null || b.age_s < 60)) {
-      $("battChip").hidden = false;
       $("battChip").textContent =
         (b.charging ? "⚡ " : "🔋 ") + Math.round(b.percent) + "%";
       $("battChip").title = "Cooper's battery" +
@@ -1036,7 +1038,10 @@
       $("battChip").className = "batt " +
         (b.percent < 15 ? "bad" : b.percent < 30 ? "warn" : "ok");
     } else {
-      $("battChip").hidden = true;
+      $("battChip").textContent = "🔋 …";
+      $("battChip").className = "batt";
+      $("battChip").title = "Waiting for battery data from Cooper " +
+        "(no battery/BMS topic found yet)";
     }
 
     // Show milestones reported live by the running show script.
