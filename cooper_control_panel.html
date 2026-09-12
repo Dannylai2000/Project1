@@ -63,6 +63,8 @@
   .batt.ok { color: var(--ok); }
   .batt.warn { color: var(--warn); border-color: var(--warn); }
   .batt.bad { color: var(--bad); border-color: var(--bad); }
+  .ver { color: var(--dim); font-size: 12px; white-space: nowrap; }
+  .ver.warn { color: var(--warn); font-weight: 650; }
 
   /* Control API availability bar */
   #serverBar {
@@ -260,6 +262,7 @@
     <button id="helpBtn" class="hbtn" title="How to use this panel">❓ Help</button>
     <button id="gear" title="Change IP address, port, or PIN">⚙ Settings</button>
     <span class="conn"><span class="dot" id="connDot"></span><span id="connText">connecting…</span></span>
+    <span class="ver" id="verChip" title="Panel version — turns amber if the control API runs a different version">v?</span>
   </header>
 
   <div id="serverBar" class="checking">
@@ -457,7 +460,12 @@
       runs when no panel is connected anywhere. Next to Help, a
       <b>🔋 battery chip</b> shows Cooper's live charge (⚡ while
       charging; amber under 30%, red under 15%) — it appears once the
-      robot's battery topic is detected and updates every few seconds.</p>
+      robot's battery topic is detected and updates every few seconds.
+      At the far right, the small <b>version tag</b> (e.g. v2026.09.12-1)
+      identifies this page's build; if it turns <b>amber</b> showing
+      "page ≠ API", the webpage on optimus and the server on Cooper are on
+      different versions — re-copy the page or update/restart the API so
+      they match.</p>
 
       <h3>⚙ Settings — Connection</h3>
       <ul>
@@ -643,6 +651,11 @@
 (() => {
   const $ = id => document.getElementById(id);
   let showRunning = false;
+
+  // Bumped on every change, in lockstep with SERVER_VERSION in
+  // cooper_panel_server.py. Shown top-right; amber = page and API differ.
+  const PANEL_VERSION = "2026.09.12-1";
+  $("verChip").textContent = "v" + PANEL_VERSION;
 
   function status(msg, cls = "") {
     $("status").className = cls;
@@ -1001,6 +1014,15 @@
       ? "The show controls the microphone while it is running."
       : "Microphone Off = Cooper ignores surrounding conversation. " +
         "Speaker Muted = no sound from Cooper.";
+
+    // Version cross-check: amber chip = page and API not on the same build.
+    if (s.version && s.version !== PANEL_VERSION) {
+      $("verChip").textContent = `page v${PANEL_VERSION} ≠ API v${s.version}`;
+      $("verChip").className = "ver warn";
+    } else {
+      $("verChip").textContent = "v" + PANEL_VERSION;
+      $("verChip").className = "ver";
+    }
 
     // Live battery readout (from Cooper's BMS topic, via 3 s polling).
     const b = s.battery;

@@ -77,6 +77,20 @@ separate deployment. Runtime files (`cooper_panel_config.json` for the shared
 shortlist, `cooper_show_timing.json` for diagnostics) are created next to the
 server automatically.
 
+### 3b. After every update: check the version tag
+
+The panel shows a version tag top-right (e.g. `v2026.09.12-1`), bumped
+on every change; the API reports its own via `/api/status`. After
+deploying, hard-reload the page (Ctrl-Shift-R / long-press reload on the
+iPad) and check the tag:
+
+- Shows the **new version** → the page deployed.
+- Shows the **old version** → the copy to optimus didn't happen or the
+  browser cached the page — re-copy and hard-reload.
+- **Amber "page ≠ API"** → the two sides are on different builds:
+  update whichever lags (`git pull` + restart the service on Cooper, or
+  re-copy the HTML on optimus).
+
 ### 4. First-run verification
 
 Open the panel page (from optimus, or `cooper_control_panel.html` straight

@@ -64,6 +64,11 @@ except ImportError:  # pragma: no cover
 
 LOGGER = logging.getLogger("cooper_panel")
 
+# Bumped on every change, in lockstep with PANEL_VERSION in
+# cooper_control_panel.html. The panel shows both and flags a mismatch,
+# so a half-deployed update is visible at a glance.
+SERVER_VERSION = "2026.09.12-1"
+
 DEFAULT_GET_RESOURCES_SVC  = "/aimdk_5Fmsgs/srv/GetRobotResources"
 DEFAULT_EXECUTE_ACTION_SVC = "/aimdk_5Fmsgs/srv/ExecuteActionResource"
 DEFAULT_SET_MUTE_SVC       = "/aimdk_5Fmsgs/srv/SetMute"
@@ -833,6 +838,7 @@ def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str,
                 library_size, new_songs = library.counts()
                 return self._send_json({
                     "ok": True,
+                    "version": SERVER_VERSION,
                     "listening": node.listening_state,
                     "speaker": node.speaker_state,
                     "volume": node.volume_state,
@@ -1066,8 +1072,9 @@ def main() -> None:
                     return
         threading.Thread(target=idle_watch, name="idle-watch", daemon=True).start()
 
-    LOGGER.info("Cooper Control Panel at http://%s:%d/ (PIN %s)",
-                args.bind, args.port, "enabled" if args.pin else "DISABLED")
+    LOGGER.info("Cooper control API v%s at http://%s:%d/ (PIN %s)",
+                SERVER_VERSION, args.bind, args.port,
+                "enabled" if args.pin else "DISABLED")
     if not args.pin:
         LOGGER.warning("No PIN set — anyone on the network can control Cooper. "
                        "Start with --pin <code> or COOPER_PANEL_PIN.")
