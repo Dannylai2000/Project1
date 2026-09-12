@@ -116,9 +116,10 @@ class CooperPanelNode(Node):
                 SetVolume, DEFAULT_SET_VOLUME_SVC, callback_group=self._cbg
             )
 
-        # Last listening/speaker states we set (None until first change).
+        # Last listening/speaker/volume states we set (None until first change).
         self.listening_state: bool | None = None
         self.speaker_state: bool | None = None
+        self.volume_state: int | None = None
         # Cache of resource_key -> resource, refreshed by list_dances().
         self._resource_cache: dict = {}
 
@@ -288,8 +289,8 @@ class CooperPanelNode(Node):
         LOGGER.info("Microphone %s", "UNMUTED (listening)" if listen else "MUTED")
         return timing
 
-    def set_speaker(self, on: bool) -> dict:
-        """Speaker on (restore volume) or muted (volume 0), via SetVolume."""
+    def _send_volume(self, volume: int) -> dict:
+        """Send a SetVolume request (0-100). Returns a timing breakdown."""
         timing: dict = {}
         if self._set_volume is None:
             raise RuntimeError("SetVolume not available in this aimdk_msgs build")
@@ -300,7 +301,6 @@ class CooperPanelNode(Node):
 
         req = SetVolume.Request()
         self._stamp(req)
-        volume = self._speaker_volume if on else 0
         # Field names vary between SDK builds — set whichever exists.
         for holder in (req, getattr(req, "volume_req", None)):
             if holder is None:
@@ -321,8 +321,26 @@ class CooperPanelNode(Node):
         if response is None:
             raise RuntimeError("SetVolume timed out")
         timing["robot_ack_ms"] = round((time.perf_counter() - t0) * 1000, 1)
+        return timing
+
+    def set_speaker(self, on: bool) -> dict:
+        """Speaker on (restore volume) or muted (volume 0), via SetVolume."""
+        volume = self._speaker_volume if on else 0
+        timing = self._send_volume(volume)
         self.speaker_state = on
+        self.volume_state = volume
         LOGGER.info("Speaker %s", f"ON (volume {volume})" if on else "MUTED (volume 0)")
+        return timing
+
+    def set_volume(self, level: int) -> dict:
+        """Set the speaker volume directly (0-100); 0 counts as muted."""
+        level = max(0, min(100, int(level)))
+        timing = self._send_volume(level)
+        self.volume_state = level
+        self.speaker_state = level > 0
+        if level > 0:
+            self._speaker_volume = level  # what a later "Speaker On" restores
+        LOGGER.info("Speaker volume set to %d", level)
         return timing
 
 
@@ -447,6 +465,58 @@ class PanelConfig:
         return cleaned
 
     MAX_DANCE_TIME_S = 600.0
+
+    # Two user-customizable gesture buttons (label + preset motion/area ids).
+    DEFAULT_CUSTOM_ACTIONS = [
+        {"label": "Right-hand wave", "motion": 1002, "area": 2},
+        {"label": "Both-hands heart", "motion": 1007, "area": 3},
+    ]
+
+    def get_custom_actions(self) -> list[dict]:
+        with self._lock:
+            try:
+                data = json.loads(self._path.read_text())
+            except (OSError, json.JSONDecodeError):
+                data = {}
+        stored = data.get("custom_actions")
+        out = []
+        for i, default in enumerate(self.DEFAULT_CUSTOM_ACTIONS):
+            entry = dict(default)
+            if isinstance(stored, list) and i < len(stored) and isinstance(stored[i], dict):
+                with suppress(TypeError, ValueError):
+                    entry = {
+                        "label": str(stored[i].get("label") or default["label"])[:40],
+                        "motion": int(stored[i].get("motion", default["motion"])),
+                        "area": int(stored[i].get("area", default["area"])),
+                    }
+            out.append(entry)
+        return out
+
+    def set_custom_actions(self, actions) -> list[dict]:
+        if not isinstance(actions, list) or len(actions) != len(self.DEFAULT_CUSTOM_ACTIONS):
+            raise ValueError(f"expected a list of {len(self.DEFAULT_CUSTOM_ACTIONS)} actions")
+        cleaned = []
+        for i, a in enumerate(actions):
+            if not isinstance(a, dict):
+                raise ValueError("each action must be an object")
+            default = self.DEFAULT_CUSTOM_ACTIONS[i]
+            label = str(a.get("label") or default["label"]).strip()[:40] or default["label"]
+            try:
+                motion = max(0, min(9999, int(a.get("motion", default["motion"]))))
+                area = max(0, min(99, int(a.get("area", default["area"]))))
+            except (TypeError, ValueError):
+                raise ValueError("motion and area must be numbers")
+            cleaned.append({"label": label, "motion": motion, "area": area})
+        with self._lock:
+            try:
+                data = json.loads(self._path.read_text())
+            except (OSError, json.JSONDecodeError):
+                data = {}
+            data["custom_actions"] = cleaned
+            self._path.write_text(json.dumps(data, indent=2))
+        LOGGER.info("Custom action buttons saved: %s",
+                    ", ".join(a["label"] for a in cleaned))
+        return cleaned
 
     def get_dance_times(self) -> dict:
         """Per-song play time in seconds ({} entries mean the show default)."""
@@ -661,6 +731,7 @@ def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str,
                     "ok": True,
                     "listening": node.listening_state,
                     "speaker": node.speaker_state,
+                    "volume": node.volume_state,
                     "show_running": shows.running(),
                     "pin_required": bool(pin),
                     "library_size": library_size,
@@ -677,10 +748,15 @@ def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str,
                                         "shortlist": config.get_shortlist(),
                                         "times": config.get_dance_times()})
             if self.path == "/api/actions":
-                return self._send_json({"ok": True, "actions": [
+                actions = [
                     {"key": k, "label": a["label"], "emoji": a["emoji"]}
                     for k, a in ACTIONS.items()
-                ]})
+                ]
+                for i, a in enumerate(config.get_custom_actions(), start=1):
+                    actions.append({"key": f"custom{i}", "label": a["label"],
+                                    "emoji": "⭐", "custom": True,
+                                    "motion": a["motion"], "area": a["area"]})
+                return self._send_json({"ok": True, "actions": actions})
             return self._send_json({"ok": False, "error": "not found"}, 404)
 
         def do_POST(self):
@@ -716,7 +792,24 @@ def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str,
                     on = bool(body["on"])
                     timing = node.set_speaker(on)
                     timing["server_total_ms"] = server_ms()
-                    return self._send_json({"ok": True, "speaker": on, "timing": timing})
+                    return self._send_json({"ok": True, "speaker": on,
+                                            "volume": node.volume_state, "timing": timing})
+
+                if self.path == "/api/volume":
+                    if "level" not in body:
+                        return self._send_json({"ok": False, "error": "missing 'level'"}, 400)
+                    try:
+                        level = int(body["level"])
+                    except (TypeError, ValueError):
+                        return self._send_json({"ok": False, "error": "level must be 0-100"}, 400)
+                    timing = node.set_volume(level)
+                    timing["server_total_ms"] = server_ms()
+                    return self._send_json({"ok": True, "volume": node.volume_state,
+                                            "speaker": node.speaker_state, "timing": timing})
+
+                if self.path == "/api/custom_actions":
+                    saved = config.set_custom_actions(body.get("actions"))
+                    return self._send_json({"ok": True, "actions": saved})
 
                 if self.path == "/api/shortlist":
                     result = {}
@@ -733,7 +826,14 @@ def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str,
                     return self._send_json({"ok": True, "seen": library.mark_all_seen()})
 
                 if self.path == "/api/action":
-                    action = ACTIONS.get(str(body.get("action") or ""))
+                    key = str(body.get("action") or "")
+                    action = ACTIONS.get(key)
+                    if action is None and key.startswith("custom"):
+                        customs = config.get_custom_actions()
+                        with suppress(TypeError, ValueError, IndexError):
+                            idx = int(key[6:]) - 1
+                            if 0 <= idx < len(customs):
+                                action = customs[idx]
                     if action is None:
                         return self._send_json({"ok": False, "error": "unknown action"}, 400)
                     if shows.running():

@@ -63,6 +63,10 @@ Features:
   1002 wave, 1003 handshake, 1004 airkiss); heart, wave, and blow kiss
   match the working show script. ⚠️ Left-hand wave uses area 1 —
   verify the left-arm area id on the robot (right arm is area 2).
+  Two extra **⭐ customizable buttons** (defaults: Right-hand wave
+  1002/2 and Both-hands heart 1007/3) can be relabeled and repointed at
+  any motion/area from ⚙ Settings; stored in the shared config on
+  Cooper (`custom_actions`), PIN required to change.
 - **Secondary (backup) robot** — ⚙ Settings holds a second X2's IP
   address and an Active robot selector; if the active robot fails, the
   red status bar offers "🤖 Use backup robot" to continue the
@@ -72,10 +76,11 @@ Features:
   shortlist sets how long the full show waits during that dance
   (blank = 30 s default, 0 = don't wait). Stored on the robot
   (`dance_times` in `cooper_panel_config.json`), shared by all devices.
-- **Audio radio buttons** — Microphone On / Off (mic mute via `SetMute`)
-  and Speaker On / Muted (volume 0 via `SetVolume`, restored to
-  `--speaker-volume`, default 70, when switched back on). The speaker
-  stays usable during a show for silent rehearsals.
+- **Audio controls** — Microphone On / Off radios (mic mute via
+  `SetMute`), Speaker On / Muted radios, and a **volume slider** (0–100,
+  via `SetVolume`). Muted = volume 0; "Speaker On" restores the last
+  non-zero level set (initially `--speaker-volume`, default 70). The
+  speaker and volume stay usable during a show for silent rehearsals.
 - **Cooper IP address field** — in the ⚙ settings panel; defaults to
   192.168.68.54 and is saved in the browser (localStorage). At an event,
   just type Cooper's IP on that network. The page itself is hosted on
@@ -193,6 +198,7 @@ REST API (used by the page, also handy for scripting):
 | `/api/dance` | POST | `{"key": "..."}` | play one dance |
 | `/api/listening` | POST | `{"listen": true\|false}` | mic on/off |
 | `/api/speaker` | POST | `{"on": true\|false}` | speaker on/muted |
+| `/api/volume` | POST | `{"level": 0-100}` | speaker volume |
 | `/api/show` | POST | `{"dance_key": "...", "unmute_after": false}` | run the full show |
 
 The show script also accepts the dance directly:

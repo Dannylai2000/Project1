@@ -70,8 +70,9 @@ from a folder) and check, in order:
 3. The **Microphone On/Off radios** work — this exercises the `SetMute`
    service; if it errors, check the request field name:
    `ros2 interface show aimdk_msgs/srv/SetMute`. Then the **Speaker
-   On/Muted radios** — these exercise `SetVolume` (muted = volume 0,
-   On restores `--speaker-volume`, default 70).
+   On/Muted radios and the volume slider** — these exercise `SetVolume`
+   (muted = volume 0; On restores the last non-zero level, initially
+   `--speaker-volume`, default 70).
 4. Each **Action button** (🤝 🫶 👋 🖐️ 😘) performs the right gesture
    (handshake = preset motion 1003; left-hand wave uses area 1 — verify
    the left-arm area id).

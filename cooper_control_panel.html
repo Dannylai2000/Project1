@@ -42,7 +42,9 @@
 
   /* Header */
   header { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
-  header h1 { font-size: 20px; margin: 0; flex: 1; }
+  header h1 { font-size: 20px; margin: 0; flex: 1;
+              display: flex; align-items: center; gap: 9px; }
+  header .logo { width: 32px; height: 32px; flex: none; }
   .conn { display: flex; align-items: center; gap: 6px; color: var(--dim); font-size: 13px; }
   .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--dim); }
   .dot.on { background: var(--ok); } .dot.off { background: var(--bad); }
@@ -136,6 +138,7 @@
     color: var(--text); text-align: right;
   }
   #shortlist .songTimeUnit { color: var(--dim); font-size: 13px; }
+  .field .row input[type=number] { width: 92px; flex: none; }
   .pill {
     background: var(--warn); color: #3a2600; border-radius: 5px;
     font-size: 11px; font-weight: 750; padding: 1px 7px; margin-left: auto;
@@ -196,6 +199,9 @@
   }
   label.rad input[type=radio] { width: 19px; height: 19px; accent-color: var(--accent); }
   .audioRow .state { margin-left: auto; }
+  #volSlider { flex: 1; min-width: 120px; accent-color: var(--accent);
+               height: 26px; touch-action: manipulation; }
+  #volState { min-width: 28px; text-align: right; }
   #listenHint { color: var(--dim); font-size: 13px; margin-top: 6px; }
 
   label.chk { display: flex; gap: 8px; align-items: center; color: var(--dim);
@@ -240,7 +246,17 @@
 <body>
 <main>
   <header>
-    <h1>🤖 Cooper</h1>
+    <h1><svg class="logo" viewBox="0 0 64 64" aria-hidden="true">
+      <rect x="2" y="24" width="8" height="16" rx="3" fill="#6d4726"/>
+      <rect x="54" y="24" width="8" height="16" rx="3" fill="#6d4726"/>
+      <rect x="8" y="8" width="48" height="48" rx="16" fill="#a16c41"/>
+      <rect x="13" y="12" width="38" height="17" rx="8.5" fill="#b8865b"/>
+      <rect x="16" y="22" width="32" height="17" rx="8.5" fill="#1e150d"/>
+      <rect x="20" y="25" width="24" height="4.5" rx="2.2" fill="#4a4038"/>
+      <circle cx="25" cy="31.5" r="4.4" fill="#fff"/>
+      <circle cx="39" cy="31.5" r="4.4" fill="#fff"/>
+      <rect x="26" y="45" width="12" height="4.5" rx="2.2" fill="#7a4d26"/>
+    </svg> Cooper</h1>
     <button id="helpBtn" class="hbtn" title="How to use this panel">❓ Help</button>
     <button id="gear" title="Change IP address, port, or PIN">⚙ Settings</button>
     <span class="conn"><span class="dot" id="connDot"></span><span id="connText">connecting…</span></span>
@@ -288,6 +304,23 @@
         Performance diagnostics — show Cooper's response times</label>
     </div>
     <div class="field">
+      <label>Custom action buttons — label plus motion / area ids from the
+        AimDK preset-motion table (shared by all devices)</label>
+      <div class="row">
+        <input type="text" id="ca1Label" placeholder="Button 1 label">
+        <input type="number" id="ca1Motion" min="0" max="9999" title="Motion id">
+        <input type="number" id="ca1Area" min="0" max="99" title="Area id">
+      </div>
+      <div class="row">
+        <input type="text" id="ca2Label" placeholder="Button 2 label">
+        <input type="number" id="ca2Motion" min="0" max="9999" title="Motion id">
+        <input type="number" id="ca2Area" min="0" max="99" title="Area id">
+      </div>
+      <div class="row" style="margin-top:8px">
+        <button class="secondary" id="caSave">Save custom buttons</button>
+      </div>
+    </div>
+    <div class="field">
       <label>Dance song shortlist — ticked songs appear in the dance list
         (none ticked = show every song). The seconds box sets each song's
         play time in the full show: blank = 30 s, 0 = don't wait.</label>
@@ -313,6 +346,11 @@
       <label class="rad"><input type="radio" name="spkRad" id="spkOn"> On</label>
       <label class="rad"><input type="radio" name="spkRad" id="spkOff"> Muted</label>
       <span class="state" id="spkState">unknown</span>
+    </div>
+    <div class="row audioRow">
+      <span class="audioName">🔉 Volume</span>
+      <input type="range" id="volSlider" min="0" max="100" step="5" value="70">
+      <span class="state" id="volState">—</span>
     </div>
     <div id="listenHint" class="hint">Microphone Off = Cooper ignores
       surrounding conversation. Speaker Muted = no sound from Cooper.</div>
@@ -437,16 +475,22 @@
       afterwards unless "listen again after show" is ticked.
       <br><b>🔊 Speaker On / Muted</b> — Muted sets Cooper's volume to zero,
       so no speech or sound comes out (useful for a silent rehearsal); On
-      restores the normal volume. The speaker stays usable even while a show
-      is running.</p>
+      restores the normal volume.
+      <br><b>🔉 Volume slider</b> — sets the speaker level directly (0–100);
+      sliding to 0 is the same as Muted, and the last non-zero level you set
+      is what "Speaker On" restores. Speaker and volume stay usable even
+      while a show is running.</p>
 
       <h3>Actions</h3>
       <p>One-tap gestures Cooper performs immediately: <b>🤝 Shake hand</b>,
       <b>🫶 Heart sign</b> (both hands), <b>👋 Right-hand goodbye</b>,
-      <b>🖐️ Left-hand wave</b>, and <b>😘 Blow kiss</b>. They move the robot
-      only — no speech, and the microphone is not affected. The buttons are
-      disabled while a full show is running so gestures cannot interrupt the
-      performance.</p>
+      <b>🖐️ Left-hand wave</b>, and <b>😘 Blow kiss</b> — plus two
+      <b>⭐ customizable buttons</b> (out of the box: Right-hand wave and
+      Both-hands heart). Change a custom button's label and motion/area ids
+      in ⚙ Settings → "Custom action buttons"; the change applies to every
+      device. Gestures move the robot only — no speech, and the microphone
+      is not affected. All buttons are disabled while a full show is running
+      so gestures cannot interrupt the performance.</p>
 
       <h3>Performance</h3>
       <ul>
@@ -868,7 +912,7 @@
   // ── web server availability bar ────────────────────────────────────────
   let online = false;
 
-  const AUDIO_RADIOS = ["micOn", "micOff", "spkOn", "spkOff"];
+  const AUDIO_RADIOS = ["micOn", "micOff", "spkOn", "spkOff", "volSlider"];
 
   function updateServerBar(up) {
     online = up;
@@ -914,12 +958,18 @@
     $("micOff").checked = s.listening === false;
     $("micState").textContent =
       s.listening === true ? "listening" : s.listening === false ? "off" : "unknown";
-    // Speaker radios (usable even during a show, e.g. silent rehearsal).
-    $("spkOn").disabled = $("spkOff").disabled = false;
+    // Speaker radios + volume (usable even during a show, e.g. silent rehearsal).
+    $("spkOn").disabled = $("spkOff").disabled = $("volSlider").disabled = false;
     $("spkOn").checked = s.speaker === true;
     $("spkOff").checked = s.speaker === false;
     $("spkState").textContent =
       s.speaker === true ? "on" : s.speaker === false ? "muted" : "unknown";
+    if (s.volume != null && document.activeElement !== $("volSlider")) {
+      $("volSlider").value = s.volume;
+      $("volState").textContent = s.volume;
+    } else if (s.volume == null) {
+      $("volState").textContent = "—";
+    }
     $("listenHint").textContent = showRunning
       ? "The show controls the microphone while it is running."
       : "Microphone Off = Cooper ignores surrounding conversation. " +
@@ -1093,6 +1143,14 @@
   async function loadActions() {
     try {
       const { actions } = await api("/api/actions");
+      // Fill the custom-button editor in settings from the shared config.
+      actions.filter(a => a.custom).forEach((a, i) => {
+        const n = i + 1;
+        if (!$(`ca${n}Label`)) return;
+        $(`ca${n}Label`).value = a.label;
+        $(`ca${n}Motion`).value = a.motion;
+        $(`ca${n}Area`).value = a.area;
+      });
       const box = $("actionBtns");
       box.innerHTML = "";
       for (const a of actions) {
@@ -1174,6 +1232,35 @@
     setAudio("/api/speaker", { on: true }, "Speaker ON", "Speaker is on."));
   $("spkOff").addEventListener("change", () =>
     setAudio("/api/speaker", { on: false }, "Speaker MUTED", "Speaker is muted — Cooper makes no sound."));
+  $("volSlider").addEventListener("input", () => {
+    $("volState").textContent = $("volSlider").value;
+  });
+  $("volSlider").addEventListener("change", () => {
+    const level = Number($("volSlider").value);
+    setAudio("/api/volume", { level },
+      "Volume", level === 0 ? "Volume 0 — speaker muted." : `Volume set to ${level}.`);
+  });
+  $("caSave").addEventListener("click", async () => {
+    $("caSave").disabled = true;
+    try {
+      await api("/api/custom_actions", {
+        method: "POST",
+        body: JSON.stringify({
+          actions: [1, 2].map(n => ({
+            label: $(`ca${n}Label`).value.trim(),
+            motion: Number($(`ca${n}Motion`).value),
+            area: Number($(`ca${n}Area`).value),
+          })),
+        }),
+      });
+      status("Custom buttons saved for all devices.", "ok");
+      await loadActions();
+    } catch (e) {
+      status(`Saving custom buttons failed: ${e.message}`, "err");
+    } finally {
+      $("caSave").disabled = false;
+    }
+  });
 
   $("playDance").addEventListener("click", async () => {
     const key = $("dances").value;
@@ -1276,23 +1363,11 @@
 
   connect();
 
-  // Page icon: served by Cooper at /favicon.png (real PNG if cooper_icon.png
-  // is installed next to the server). When the page is opened directly from
-  // a file, fall back to the built-in Cooper icon.
-  const COOPER_SVG =
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">' +
-    '<rect width="64" height="64" rx="14" fill="#eef1f4"/>' +
-    '<rect x="17" y="7" width="30" height="32" rx="13" fill="#17191c"/>' +
-    '<rect x="26" y="17" width="3" height="8" rx="1.5" fill="#fff"/>' +
-    '<rect x="35" y="17" width="3" height="8" rx="1.5" fill="#fff"/>' +
-    '<rect x="27" y="29" width="10" height="2.6" rx="1.3" fill="#fff"/>' +
-    '<rect x="10" y="42" width="44" height="18" rx="9" fill="#fbfcfd" stroke="#c6ced6" stroke-width="1.5"/>' +
-    '<circle cx="32" cy="48" r="1.7" fill="#17191c"/>' +
-    '<circle cx="32" cy="54" r="1.7" fill="#17191c"/>' +
-    '</svg>';
-  if (location.protocol === "file:") {
-    $("favicon").href = "data:image/svg+xml," + encodeURIComponent(COOPER_SVG);
-  }
+  // Page icon: the Cooper head artwork (same drawing as the header logo),
+  // embedded as a data URI so it works from Apache and from a local file.
+  $("favicon").href = "data:image/svg+xml," +
+    encodeURIComponent(document.querySelector("header .logo").outerHTML
+      .replace("<svg", '<svg xmlns="http://www.w3.org/2000/svg"'));
 })();
 </script>
 </body>
