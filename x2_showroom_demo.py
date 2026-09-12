@@ -79,14 +79,14 @@ FINAL_AREA_ID       = 3
 FINAL_MOTION_WAIT_S = 1.0
 
 # ── Sequence texts ────────────────────────────────────────────────────────────
-GREETING_TEXT  = "Thank You Caden for remembering me! Hello everyone! It is wonderful to be here with you today.:q"
+GREETING_TEXT  = "Thank You Caden for remembering me! Hello everyone! It is wonderful to be here today"
 INTRO_TEXT     = (
-    " My name is Cooper. I am the One Comcentre Ambassador, a AI-Enabled humanoid robot. "
-    " I may still be in training, but I'm ready for the future."
-    " Before I begin, please give me at least 2 meters distance. Here is my best move. I hope you enjoy the show!"
+    " My name is Cooper "
+    " I may still be at training, but I am ready for the future."
+    " I can do many things and even help lead exercise sessions for you and your teams. I hope you enjoy the show!"
 )
-THANK_YOU_TEXT = "Thank you so much for watching! It was a true pleasure performing for you."
-GOODBY_TEXT = "See you in One Comcentre for the future. Bye!"
+THANK_YOU_TEXT = "Thank you so much"
+GOODBY_TEXT = "See you at One Com Centre"
 
 POST_TTS_GRACE_S = 0.2
 
@@ -530,7 +530,7 @@ class IntroSequenceNode(Node):
 
             # Greeting speech starts immediately; the wave overlaps it.
             self.get_logger().info("=== STEP 1: GREETING + WAVE ===")
-            self._play_emoji("welcome")
+            #self._play_emoji("welcome")
             self._speak(
                 self._greeting_text,
                 during=lambda: self._run_preset_motion(1002, 2, 0.0),
@@ -541,14 +541,14 @@ class IntroSequenceNode(Node):
             self._speak(self._intro_text)
 
             self.get_logger().info("=== STEP 3: DANCE ===")
-            self._play_emoji("dance")
+            #self._play_emoji("dance")
             self._run_linkcraft_action(self._dance_key, self._dance_duration_s)
 
-            self.get_logger().info("=== STEP 3a: Bow ===")
-            self._run_preset_motion(3001, 11, FINAL_MOTION_WAIT_S)
+            #self.get_logger().info("=== STEP 3a: Bow ===")
+            #self._run_preset_motion(3001, 11, FINAL_MOTION_WAIT_S)
 
-            self.get_logger().info("=== STEP 3b: Clap ===")
-            self._run_preset_motion(3017, 11, FINAL_MOTION_WAIT_S)
+            #self.get_logger().info("=== STEP 3b: Clap ===")
+            #self._run_preset_motion(3017, 11, FINAL_MOTION_WAIT_S)
 
             # Thank-you speech and heart gesture play together.
             self.get_logger().info("=== STEP 4: THANK YOU + HEART ===")
