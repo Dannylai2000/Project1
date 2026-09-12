@@ -1,34 +1,16 @@
 # Project Cooper — Deployment Guide
 
-Two pieces run in the show suite. `optimus` (Ubuntu PC, 192.168.68.51)
-hosts the **webpage** (Apache, port 8080) and — recommended — the
-**control API** (`cooper_panel_server.py`, port 8081), which talks to
-Cooper over ROS2/DDS. Nothing has to be installed on Cooper itself; the
-robot only needs to be on the same network. Running the API on Cooper is
-still supported as a fallback (see A.6).
+Two pieces, two machines: **Cooper** (the robot, 192.168.68.54) runs the
+**control API** (`cooper_panel_server.py`, port 8080 — it must live where
+ROS runs), and **optimus** (Ubuntu PC, 192.168.68.51) hosts only the
+**webpage** (Apache, port 8080). The browser loads the page from optimus
+and sends every command straight to Cooper's API.
 
-## A. The control API — on optimus (recommended)
-
-Running the API on optimus avoids Cooper's no-sudo/lingering hassles:
-you have root there, and the API server is an ordinary ROS2 node that
-reaches the robot over the network.
-
-**Prerequisite**: optimus needs ROS 2 Humble and the AimDK workspace
-(same two `source` lines used on the robot). Verify it can see Cooper's
-services before installing:
-
-```bash
-source /opt/ros/humble/setup.bash && source ~/aimdk/install/setup.bash
-ros2 service list | grep -i aimdk        # must list Cooper's services
-```
-
-If that lists nothing, the DDS link to the robot isn't up (check that
-optimus and Cooper are on the same subnet and share the ROS_DOMAIN_ID) —
-fix that first, or fall back to running the API on Cooper (A.6).
+## A. Cooper (the robot) — the control API
 
 ### 1. Get or update the code
 
-On optimus:
+SSH into Cooper, then:
 
 ```bash
 git clone https://github.com/Dannylai2000/Project1.git ~/cooper   # first time
@@ -36,17 +18,23 @@ git clone https://github.com/Dannylai2000/Project1.git ~/cooper   # first time
 cd ~/cooper && git pull
 ```
 
-### 2. Install the API as a service — port 8081 (Apache owns 8080)
+No internet on Cooper? Clone on a laptop and copy instead:
+
+```bash
+scp -r Project1 <user>@192.168.68.54:~/cooper
+```
+
+### 2. Install the API as a service (no sudo needed on Cooper)
 
 ```bash
 cd ~/cooper
-sudo ./deploy/install_cooper_service.sh --pin 2468 --port 8081                # on-demand
-sudo ./deploy/install_cooper_service.sh --pin 2468 --port 8081 --idle-exit 0  # never auto-stops
-sudo ./deploy/install_cooper_service.sh --pin 2468 --port 8081 --always-on    # runs from boot
+./deploy/install_cooper_service_nosudo.sh --pin 2468                # on-demand
+./deploy/install_cooper_service_nosudo.sh --pin 2468 --idle-exit 0  # never auto-stops
+./deploy/install_cooper_service_nosudo.sh --pin 2468 --cron         # force cron fallback
 ```
 
-The panel's default address is exactly this setup: the page's own host,
-port 8081 — so a freshly opened panel connects with no typing.
+(With root available, `sudo ./deploy/install_cooper_service.sh` offers
+the same modes as a system service.)
 
 ### 3. Service modes
 
@@ -60,17 +48,7 @@ Replace `2468` with the real panel PIN. Modes:
 
 Switching modes later = re-run the script with different flags.
 
-**No sudo (e.g. when running the API on Cooper instead — see A.6)?** Use
-the no-root installer — same options, runs entirely under your own user
-account:
-
-```bash
-./deploy/install_cooper_service_nosudo.sh --pin 2468                # on-demand
-./deploy/install_cooper_service_nosudo.sh --pin 2468 --idle-exit 0  # never auto-stops
-./deploy/install_cooper_service_nosudo.sh --pin 2468 --cron         # force cron fallback
-```
-
-It prefers **systemd user units** (`~/.config/systemd/user`, checked with
+The no-sudo installer prefers **systemd user units** (`~/.config/systemd/user`, checked with
 `systemctl --user status cooper-panel.socket`), keeping on-demand socket
 activation. Start-at-boot without a login needs lingering — the script
 tries to enable it and prints the one admin command
@@ -105,8 +83,8 @@ Open the panel page (from optimus, or `cooper_control_panel.html` straight
 from a folder) and check, in order:
 
 1. The **server status bar turns green** ("… control API … Online"). Red
-   with the wrong address showing? Fix it in ⚙ Settings — the API is the
-   page's own host on port 8081 in the recommended setup.
+   with the wrong address showing? Fix it in ⚙ Settings — Cooper's API is
+   192.168.68.54 port 8080 in the show suite.
 2. In ⚙ Settings, the **song list loads with readable names** and you set
    the **Show dance**; the Performance card shows the choice.
 3. The **Microphone On/Off radios** work — this exercises the `SetMute`
@@ -126,34 +104,27 @@ from a folder) and check, in order:
    and the face plays the eye open/close emoji. A different expression means
    the blink id differs on this SDK build — set it with `--emoji-id N`
    (or change `DEFAULT_EMOJI_ID` in `x2_showroom_demo.py`).
-6. Panel unreachable from *other* devices but fine locally? Open the
-   firewall on the API host: `sudo ufw allow 8081` (or 8080 on Cooper).
+6. Panel unreachable from *other* devices but fine on Cooper? Open the
+   robot's firewall: `sudo ufw allow 8080` (needs an admin on Cooper).
 
 ### 5. Optional: secondary (backup) robot
 
 To have a second X2 ready to continue the performance if the first one
-fails, run a second control API pointed at that robot (its own host or
-the robot itself), then on each panel device enter its address in
-⚙ Settings → **Secondary robot IP address**. When the active robot's
-status bar goes red, press **🤖 Use backup robot** on the bar (or use the
-Active robot selector) to carry on with the other robot. Use the same
-PIN so devices don't need a second code.
+fails, repeat steps 1–2 on the backup robot (same repo, same installer —
+use the **same PIN** so devices don't need a second code). Then, on each
+panel device, enter the backup robot's IP in ⚙ Settings →
+**Secondary robot IP address**. When the active robot's status bar goes
+red, press **🤖 Use backup robot** on the bar (or use the Active robot
+selector) to carry on with the other robot.
 
 Note: the shortlist, play times, show dance, and custom actions are
-stored next to each API server, so configure them once per API.
-
-### 6. Fallback: running the API on Cooper instead
-
-If optimus cannot reach Cooper's ROS2 services, install the API on the
-robot exactly as in steps 1–3 but with the **no-sudo installer** and the
-default port 8080, then set the panel's ⚙ Settings address to
-192.168.68.54 port 8080.
+stored on each robot, so configure them once per robot.
 
 ## B. optimus — the webserver hosting the page
 
 The panel webpage is hosted ONLY on the Ubuntu PC `optimus`
-(192.168.68.51, Apache on port 8080), alongside the control API on
-port 8081:
+(192.168.68.51, Apache on port 8080) — Cooper runs the control API, not
+the page:
 
 ```bash
 sudo cp cooper_control_panel.html /var/www/html/index.html

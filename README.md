@@ -82,11 +82,11 @@ Features:
   via `SetVolume`). Muted = volume 0; "Speaker On" restores the last
   non-zero level set (initially `--speaker-volume`, default 70). The
   speaker and volume stay usable during a show for silent rehearsals.
-- **Control API address field** — in ⚙ Settings; defaults to the page's
-  own host on port 8081 (the recommended setup runs the API on optimus,
-  next to Apache), saved in the browser, and an invalid saved address is
-  discarded automatically. Point it at 192.168.68.54:8080 instead if the
-  API runs on Cooper.
+- **Cooper IP address field** — in ⚙ Settings; the control API (ROS)
+  runs on Cooper, so the default is 192.168.68.54 port 8080 (the page
+  itself is hosted on optimus). Saved in the browser, and an invalid
+  saved address is discarded automatically. At an event, type Cooper's
+  IP on that network.
 - **PIN protection** — all control actions (listening, dance, show)
   require a PIN when the server is started with one. The page asks for it
   in ⚙ settings and remembers it.
