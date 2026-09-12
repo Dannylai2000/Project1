@@ -67,7 +67,7 @@ LOGGER = logging.getLogger("cooper_panel")
 # Bumped on every change, in lockstep with PANEL_VERSION in
 # cooper_control_panel.html. The panel shows both and flags a mismatch,
 # so a half-deployed update is visible at a glance.
-SERVER_VERSION = "2026.09.12-2"
+SERVER_VERSION = "2026.09.12-3"
 
 DEFAULT_GET_RESOURCES_SVC  = "/aimdk_5Fmsgs/srv/GetRobotResources"
 DEFAULT_EXECUTE_ACTION_SVC = "/aimdk_5Fmsgs/srv/ExecuteActionResource"
@@ -110,6 +110,7 @@ class CooperPanelNode(Node):
         # Live battery readout (auto-discovered BMS/battery topic).
         self.battery: dict | None = None
         self._battery_ts = 0.0
+        self._battery_warned = False
         self._battery_topic_arg = battery_topic
         threading.Thread(target=self._battery_watch, name="battery-watch",
                          daemon=True).start()
@@ -179,7 +180,17 @@ class CooperPanelNode(Node):
 
     def _on_battery(self, msg) -> None:
         with suppress(Exception):
-            self.battery = battery_fields(msg)
+            parsed = battery_fields(msg)
+            if parsed.get("percent") is None and not self._battery_warned:
+                # Log the real shape once so the parser can be matched to it
+                # (e.g. protobuf-bridged wrappers carry only raw bytes).
+                self._battery_warned = True
+                fields = {}
+                with suppress(Exception):
+                    fields = dict(msg.get_fields_and_field_types())
+                LOGGER.info("Battery message has no recognizable percentage; "
+                            "type=%s fields=%s", type(msg).__name__, fields)
+            self.battery = parsed
             self._battery_ts = time.time()
 
     def battery_snapshot(self) -> dict | None:
@@ -1014,10 +1025,11 @@ def main() -> None:
     parser.add_argument("--battery-topic", default="",
                         help="battery/BMS topic to subscribe to (default: "
                              "auto-discover any topic named battery/bms)")
-    parser.add_argument("--mic-source-service", default="",
+    parser.add_argument("--mic-source-service",
+                        default="/aimdk_5Fmsgs/srv/SetMicSourceRequest",
                         help="mic source switch service, forwarded to every "
                              "show: mute → external mic → unmute → perform → "
-                             "built-in mic → mute")
+                             "built-in mic → mute ('' disables)")
     parser.add_argument("--mic-source-field", default="audio_stream_id")
     parser.add_argument("--mic-external", type=int, default=2)
     parser.add_argument("--mic-internal", type=int, default=1)
