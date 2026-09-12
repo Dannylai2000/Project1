@@ -56,6 +56,13 @@
     background: #2c3540; border: 0; color: var(--text); font-weight: 550;
     border-radius: 10px; padding: 8px 12px; font-size: 14px; cursor: pointer;
   }
+  .batt {
+    font-size: 14px; font-weight: 650; padding: 6px 10px; border-radius: 10px;
+    background: var(--panel); border: 1px solid var(--edge);
+  }
+  .batt.ok { color: var(--ok); }
+  .batt.warn { color: var(--warn); border-color: var(--warn); }
+  .batt.bad { color: var(--bad); border-color: var(--bad); }
 
   /* Control API availability bar */
   #serverBar {
@@ -249,6 +256,7 @@
       <circle cx="39" cy="31.5" r="4.4" fill="#fff"/>
       <rect x="26" y="45" width="12" height="4.5" rx="2.2" fill="#7a4d26"/>
     </svg> Cooper</h1>
+    <span class="batt" id="battChip" hidden title="Cooper's battery">🔋 —</span>
     <button id="helpBtn" class="hbtn" title="How to use this panel">❓ Help</button>
     <button id="gear" title="Change IP address, port, or PIN">⚙ Settings</button>
     <span class="conn"><span class="dot" id="connDot"></span><span id="connText">connecting…</span></span>
@@ -446,7 +454,10 @@
       also retries every 3 seconds by itself), and double-check the address
       in ⚙ Settings — a typo there is the most common cause. While a panel
       is open, an on-demand API never stops itself; its idle timer only
-      runs when no panel is connected anywhere.</p>
+      runs when no panel is connected anywhere. Next to Help, a
+      <b>🔋 battery chip</b> shows Cooper's live charge (⚡ while
+      charging; amber under 30%, red under 15%) — it appears once the
+      robot's battery topic is detected and updates every few seconds.</p>
 
       <h3>⚙ Settings — Connection</h3>
       <ul>
@@ -990,6 +1001,21 @@
       ? "The show controls the microphone while it is running."
       : "Microphone Off = Cooper ignores surrounding conversation. " +
         "Speaker Muted = no sound from Cooper.";
+
+    // Live battery readout (from Cooper's BMS topic, via 3 s polling).
+    const b = s.battery;
+    if (b && b.percent != null && (b.age_s == null || b.age_s < 60)) {
+      $("battChip").hidden = false;
+      $("battChip").textContent =
+        (b.charging ? "⚡ " : "🔋 ") + Math.round(b.percent) + "%";
+      $("battChip").title = "Cooper's battery" +
+        (b.voltage != null ? ` · ${b.voltage} V` : "") +
+        (b.charging ? " · charging" : "");
+      $("battChip").className = "batt " +
+        (b.percent < 15 ? "bad" : b.percent < 30 ? "warn" : "ok");
+    } else {
+      $("battChip").hidden = true;
+    }
 
     // Show milestones reported live by the running show script.
     trackShowTiming(s.show_timing);
