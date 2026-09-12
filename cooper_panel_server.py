@@ -67,7 +67,7 @@ LOGGER = logging.getLogger("cooper_panel")
 # Bumped on every change, in lockstep with PANEL_VERSION in
 # cooper_control_panel.html. The panel shows both and flags a mismatch,
 # so a half-deployed update is visible at a glance.
-SERVER_VERSION = "2026.09.12-1"
+SERVER_VERSION = "2026.09.12-2"
 
 DEFAULT_GET_RESOURCES_SVC  = "/aimdk_5Fmsgs/srv/GetRobotResources"
 DEFAULT_EXECUTE_ACTION_SVC = "/aimdk_5Fmsgs/srv/ExecuteActionResource"
@@ -377,8 +377,9 @@ class ShowRunner:
     end only when unmute_after is requested.
     """
 
-    def __init__(self, node: CooperPanelNode) -> None:
+    def __init__(self, node: CooperPanelNode, extra_args: list[str] | None = None) -> None:
         self._node = node
+        self._extra_args = list(extra_args or [])
         self._proc: subprocess.Popen | None = None
         self._lock = threading.Lock()
         self._last_requested: float | None = None
@@ -416,6 +417,7 @@ class ShowRunner:
                 cmd += ["--dance-duration", str(dance_duration)]
             if volume is not None:
                 cmd += ["--volume", str(int(volume))]
+            cmd += self._extra_args
             cmd += ["--timing-file", str(TIMING_FILE)]
             with suppress(OSError):
                 TIMING_FILE.unlink()
@@ -1012,6 +1014,13 @@ def main() -> None:
     parser.add_argument("--battery-topic", default="",
                         help="battery/BMS topic to subscribe to (default: "
                              "auto-discover any topic named battery/bms)")
+    parser.add_argument("--mic-source-service", default="",
+                        help="mic source switch service, forwarded to every "
+                             "show: mute → external mic → unmute → perform → "
+                             "built-in mic → mute")
+    parser.add_argument("--mic-source-field", default="audio_stream_id")
+    parser.add_argument("--mic-external", type=int, default=2)
+    parser.add_argument("--mic-internal", type=int, default=1)
     parser.add_argument("--pin", default=os.getenv("COOPER_PANEL_PIN", ""),
                         help="PIN required for all control actions "
                              "(env COOPER_PANEL_PIN; empty = no PIN)")
@@ -1040,7 +1049,13 @@ def main() -> None:
     spin_thread = threading.Thread(target=executor.spin, name="ros-spin", daemon=True)
     spin_thread.start()
 
-    shows = ShowRunner(node)
+    show_extra: list[str] = []
+    if args.mic_source_service:
+        show_extra += ["--mic-source-service", args.mic_source_service,
+                       "--mic-source-field", args.mic_source_field,
+                       "--mic-external", str(args.mic_external),
+                       "--mic-internal", str(args.mic_internal)]
+    shows = ShowRunner(node, extra_args=show_extra)
     config = PanelConfig(CONFIG_FILE)
     library = LibraryWatcher(node, config, args.library_poll)
     library.start_polling()

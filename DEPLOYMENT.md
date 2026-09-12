@@ -77,6 +77,31 @@ separate deployment. Runtime files (`cooper_panel_config.json` for the shared
 shortlist, `cooper_show_timing.json` for diagnostics) are created next to the
 server automatically.
 
+### 3a. If the show is silent (mute kills all audio on some builds)
+
+On some SDK builds, muting the assistant's microphone silences the
+speaker too — the show then talks and dances with no sound. The show
+script supports the vendor workaround (mute → switch to the external
+mic → unmute for the performance → switch back to the built-in mic →
+re-mute at the end). Find the mic-source service on Cooper:
+
+```bash
+ros2 service list | grep -iE "mic|audio|stream"
+```
+
+then start the API with it (AimDK stream ids: 1 = onboard, 2 = external):
+
+```bash
+python3 cooper_panel_server.py --port 8080 \
+    --mic-source-service /the/service/you/found
+```
+
+(`--mic-source-field`, `--mic-external`, `--mic-internal` adjust the
+request field and ids if they differ.) The show can also be tested
+directly: `python3 x2_showroom_demo.py --mic-source-service …` — or run
+`python3 x2_showroom_demo.py --no-mute` once to confirm the diagnosis:
+if that show has sound, the mute is what silences the audio.
+
 ### 3b. After every update: check the version tag
 
 The panel shows a version tag top-right (e.g. `v2026.09.12-1`), bumped
