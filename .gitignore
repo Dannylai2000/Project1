@@ -4,3 +4,4 @@ cooper_panel_config.json
 cooper_icon.png
 cooper_show_timing.json
 deploy/.panel_env
+deploy/extra_setup.bash

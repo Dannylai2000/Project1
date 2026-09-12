@@ -201,3 +201,39 @@ timer while waiting for the performance slot.
    to use, then **Mark NEW as seen**.
 5. Press **▶ Run full show**. The ❓ Help button in the panel covers
    everything else for staff.
+
+## E. Battery readout: enabling the BMS topic decode
+
+Cooper publishes battery data as
+`/aima/battery_state/pb_3Aaimdk_2Eprotocol_2EBmsState`, an AimRT
+protobuf wrapper (`ros2_plugin_proto/msg/RosMsgWrapper`). Two things
+must be importable in the API's environment:
+
+1. **The wrapper package** — find where `ros2_plugin_proto` lives:
+
+   ```bash
+   find / -name "ros2_plugin_proto" -type d 2>/dev/null | head
+   ```
+
+   If it's in a workspace not already sourced (aimdk's setup.bash did
+   not provide it), point the API at it once:
+
+   ```bash
+   echo 'source /path/to/that/workspace/setup.bash' > ~/cooper/deploy/extra_setup.bash
+   ./deploy/install_cooper_service_nosudo.sh --pin <pin>   # re-bake the unit
+   systemctl --user stop cooper-panel.service && systemctl --user restart cooper-panel.socket
+   ```
+
+2. **The BmsState protobuf class** (for decoding the wrapped bytes) —
+   the server tries common `aimdk.protocol...bms_pb2` module names
+   automatically; if the journal says none was found, locate it:
+
+   ```bash
+   find / -name "*pb2*.py" 2>/dev/null | grep -iE "bms|battery" | head
+   ```
+
+   and pass it explicitly, e.g.
+   `--battery-pb-module aimdk.protocol.hal.bms_pb2`.
+
+Check progress in the journal:
+`journalctl --user -u cooper-panel.service | grep -i battery`.
