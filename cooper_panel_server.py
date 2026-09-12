@@ -55,6 +55,12 @@ try:
 except ImportError:  # pragma: no cover
     SetVolume = None
 
+# Dynamic message loading for the battery topic (type varies by SDK build).
+try:
+    from rosidl_runtime_py.utilities import get_message
+except ImportError:  # pragma: no cover
+    get_message = None
+
 
 LOGGER = logging.getLogger("cooper_panel")
 
@@ -91,9 +97,17 @@ TIMING_FILE     = Path(__file__).resolve().parent / "cooper_show_timing.json"
 class CooperPanelNode(Node):
     """ROS2 side of the panel: talks to the AimDK services."""
 
-    def __init__(self, mute_service: str, speaker_volume: int = 70) -> None:
+    def __init__(self, mute_service: str, speaker_volume: int = 70,
+                 battery_topic: str = "") -> None:
         super().__init__("cooper_panel")
         self._speaker_volume = max(1, min(100, int(speaker_volume)))
+
+        # Live battery readout (auto-discovered BMS/battery topic).
+        self.battery: dict | None = None
+        self._battery_ts = 0.0
+        self._battery_topic_arg = battery_topic
+        threading.Thread(target=self._battery_watch, name="battery-watch",
+                         daemon=True).start()
         self._cbg = MutuallyExclusiveCallbackGroup()
         self._lock = threading.Lock()
 
@@ -120,6 +134,54 @@ class CooperPanelNode(Node):
         self.volume_state: int | None = None
         # Cache of resource_key -> resource, refreshed by list_dances().
         self._resource_cache: dict = {}
+
+    # ── battery ────────────────────────────────────────────────────────────
+
+    def _battery_watch(self) -> None:
+        """Find the battery/BMS topic and subscribe; retry until found."""
+        if get_message is None:
+            LOGGER.info("rosidl_runtime_py unavailable — battery readout disabled")
+            return
+        time.sleep(5.0)  # let DDS discovery populate the graph
+        while True:
+            try:
+                if self._try_subscribe_battery():
+                    return
+            except Exception:
+                LOGGER.debug("Battery topic discovery failed", exc_info=True)
+            time.sleep(30.0)
+
+    def _try_subscribe_battery(self) -> bool:
+        candidate = None
+        for name, types in self.get_topic_names_and_types():
+            if not types:
+                continue
+            if self._battery_topic_arg:
+                if name == self._battery_topic_arg:
+                    candidate = (name, types[0])
+                    break
+            elif any(h in name.lower() for h in ("battery", "bms")) or \
+                    any("battery" in t.lower() for t in types):
+                candidate = (name, types[0])
+                break
+        if candidate is None:
+            return False
+        msg_type = get_message(candidate[1])
+        self.create_subscription(msg_type, candidate[0], self._on_battery, 10,
+                                 callback_group=self._cbg)
+        LOGGER.info("Battery: subscribed to %s (%s)", candidate[0], candidate[1])
+        return True
+
+    def _on_battery(self, msg) -> None:
+        with suppress(Exception):
+            self.battery = battery_fields(msg)
+            self._battery_ts = time.time()
+
+    def battery_snapshot(self) -> dict | None:
+        if self.battery is None:
+            return None
+        return {**self.battery,
+                "age_s": round(time.time() - self._battery_ts, 1)}
 
     # ── helpers ────────────────────────────────────────────────────────────
 
@@ -630,6 +692,50 @@ class LibraryWatcher:
 MAX_MESSAGE_LEN = 500
 
 
+def battery_fields(msg) -> dict:
+    """Best-effort extraction of battery numbers from any BMS-style message."""
+    holders = [msg] + [getattr(msg, n, None) for n in ("battery", "bms", "data")]
+
+    def num(*names):
+        for holder in holders:
+            if holder is None:
+                continue
+            for n in names:
+                v = getattr(holder, n, None)
+                if isinstance(v, (int, float)) and not isinstance(v, bool):
+                    return float(v)
+        return None
+
+    pct = num("percentage", "soc", "battery_soc", "charge_percentage",
+              "state_of_charge", "charge")
+    if pct is not None:
+        if pct <= 1.0:          # sensor_msgs/BatteryState uses a 0-1 fraction
+            pct *= 100.0
+        pct = max(0.0, min(100.0, round(pct, 1)))
+
+    charging = None
+    for holder in holders:
+        if holder is None:
+            continue
+        status = getattr(holder, "power_supply_status", None)
+        if isinstance(status, int):
+            charging = status == 1  # POWER_SUPPLY_STATUS_CHARGING
+            break
+        flag = getattr(holder, "is_charging", None)
+        if isinstance(flag, bool):
+            charging = flag
+            break
+
+    out = {"percent": pct, "charging": charging}
+    voltage = num("voltage", "battery_voltage")
+    if voltage is not None:
+        out["voltage"] = round(voltage, 2)
+    temp = num("temperature", "battery_temperature")
+    if temp is not None:
+        out["temperature"] = round(temp, 1)
+    return out
+
+
 def run_action(motion: int, area: int) -> dict:
     """Execute one gesture via the standalone x2_action.py program."""
     t0 = time.perf_counter()
@@ -730,6 +836,7 @@ def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str,
                     "listening": node.listening_state,
                     "speaker": node.speaker_state,
                     "volume": node.volume_state,
+                    "battery": node.battery_snapshot(),
                     "show_running": shows.running(),
                     "pin_required": bool(pin),
                     "library_size": library_size,
@@ -896,6 +1003,9 @@ def main() -> None:
     parser.add_argument("--speaker-volume", type=int, default=70,
                         help="volume (1-100) restored when the speaker is "
                              "switched back on after a mute")
+    parser.add_argument("--battery-topic", default="",
+                        help="battery/BMS topic to subscribe to (default: "
+                             "auto-discover any topic named battery/bms)")
     parser.add_argument("--pin", default=os.getenv("COOPER_PANEL_PIN", ""),
                         help="PIN required for all control actions "
                              "(env COOPER_PANEL_PIN; empty = no PIN)")
@@ -917,7 +1027,8 @@ def main() -> None:
 
     rclpy.init()
     node = CooperPanelNode(mute_service=args.mute_service,
-                           speaker_volume=args.speaker_volume)
+                           speaker_volume=args.speaker_volume,
+                           battery_topic=args.battery_topic)
     executor = MultiThreadedExecutor()
     executor.add_node(node)
     spin_thread = threading.Thread(target=executor.spin, name="ros-spin", daemon=True)
