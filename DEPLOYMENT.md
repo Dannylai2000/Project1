@@ -46,6 +46,31 @@ Replace `2468` with the real panel PIN. Modes:
 
 Switching modes later = re-run the script with different flags.
 
+**No sudo on Cooper?** Use the no-root installer instead — same options,
+runs entirely under your own user account:
+
+```bash
+./deploy/install_cooper_service_nosudo.sh --pin 2468                # on-demand
+./deploy/install_cooper_service_nosudo.sh --pin 2468 --idle-exit 0  # never auto-stops
+./deploy/install_cooper_service_nosudo.sh --pin 2468 --cron         # force cron fallback
+```
+
+It prefers **systemd user units** (`~/.config/systemd/user`, checked with
+`systemctl --user status cooper-panel.socket`), keeping on-demand socket
+activation. Start-at-boot without a login needs lingering — the script
+tries to enable it and prints the one admin command
+(`sudo loginctl enable-linger <user>`) if it can't; robots that
+auto-login their user work without it. Where user systemd is unavailable
+it falls back to a **cron @reboot** entry running
+`deploy/run_cooper_panel.sh` (always-on, auto-restarts on crash, log in
+`~/cooper-panel.log`). For a quick one-off start with no install at all:
+
+```bash
+nohup ./deploy/run_cooper_panel.sh >> ~/cooper-panel.log 2>&1 &
+```
+
+The PIN/port are kept in `deploy/.panel_env` (private to your user).
+
 Status and logs:
 
 ```bash
