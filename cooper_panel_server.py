@@ -55,11 +55,10 @@ try:
 except ImportError:  # pragma: no cover
     SetVolume = None
 
-# Dynamic message/service loading (types vary by SDK build).
+# Dynamic service loading (types vary by SDK build).
 try:
-    from rosidl_runtime_py.utilities import get_message, get_service
+    from rosidl_runtime_py.utilities import get_service
 except ImportError:  # pragma: no cover
-    get_message = None
     get_service = None
 
 
@@ -68,18 +67,7 @@ LOGGER = logging.getLogger("cooper_panel")
 # Bumped on every change, in lockstep with PANEL_VERSION in
 # cooper_control_panel.html. The panel shows both and flags a mismatch,
 # so a half-deployed update is visible at a glance.
-SERVER_VERSION = "2026.09.12-5"
-
-# Protobuf classes to try for decoding the AimRT-wrapped battery message
-# (ros2_plugin_proto/msg/RosMsgWrapper carries a serialized
-# aimdk.protocol.BmsState in its data field).
-BATTERY_PB_CANDIDATES = [
-    ("aimdk.protocol.bms_pb2", "BmsState"),
-    ("aimdk.protocol.hal.bms_pb2", "BmsState"),
-    ("aimdk.protocol.hal.bms.bms_pb2", "BmsState"),
-    ("aimdk.protocol.common.bms_pb2", "BmsState"),
-    ("aimdk.protocol.battery_pb2", "BmsState"),
-]
+SERVER_VERSION = "2026.09.12-6"
 
 DEFAULT_GET_RESOURCES_SVC  = "/aimdk_5Fmsgs/srv/GetRobotResources"
 DEFAULT_EXECUTE_ACTION_SVC = "/aimdk_5Fmsgs/srv/ExecuteActionResource"
@@ -111,28 +99,107 @@ CONFIG_FILE     = Path(__file__).resolve().parent / "cooper_panel_config.json"
 TIMING_FILE     = Path(__file__).resolve().parent / "cooper_show_timing.json"
 
 
+# Field names that plausibly carry a human-readable LinkCraft song name,
+# tried in order on the resource itself, its nested sub-messages, and any
+# JSON payloads found in string fields.
+NAME_FIELD_HINTS = ("resource_name", "display_name", "song_name", "name",
+                    "title", "alias", "label", "nick_name", "nickname",
+                    "description", "remark")
+
+
+def _message_fields(msg) -> list[str]:
+    """Field names of a ROS message ([] for plain values)."""
+    with suppress(Exception):
+        return list(msg.get_fields_and_field_types().keys())
+    return [s.lstrip("_") for s in getattr(msg, "__slots__", [])]
+
+
+def _looks_like_name(value, key: str) -> bool:
+    """True when a string reads like a human title, not another machine ID."""
+    if not isinstance(value, str):
+        return False
+    v = value.strip()
+    if not v or v == key:
+        return False
+    if v.lower().startswith(("linkcraft_", "resource_", "urn:", "uuid")):
+        return False
+    # 20+ chars of unbroken letters/digits/underscores = another machine ID.
+    if len(v) >= 20 and " " not in v and all(c.isalnum() or c == "_" for c in v):
+        return False
+    return True
+
+
+def _name_from_json(text: str, key: str) -> str:
+    """Dig a name/title out of a JSON payload carried in a string field."""
+    if not text or text[0] not in "{[":
+        return ""
+    with suppress(Exception):
+        queue = [json.loads(text)]
+        while queue:
+            item = queue.pop(0)
+            if isinstance(item, dict):
+                for hint in NAME_FIELD_HINTS:
+                    v = item.get(hint)
+                    if _looks_like_name(v, key):
+                        return v.strip()
+                queue.extend(item.values())
+            elif isinstance(item, list):
+                queue.extend(item)
+    return ""
+
+
+def resource_display_name(resource, key: str) -> str:
+    """Best-effort human-readable name for a LinkCraft resource.
+
+    Checks likely name fields on the resource itself, then one level of
+    nested sub-messages, then inside any JSON payloads (e.g. a meta field).
+    Returns "" when nothing readable is found (caller falls back to the key).
+    """
+    holders = [resource]
+    for field in _message_fields(resource):
+        value = getattr(resource, field, None)
+        if value is not None and _message_fields(value):
+            holders.append(value)
+    for holder in holders:
+        for hint in NAME_FIELD_HINTS:
+            v = getattr(holder, hint, None)
+            if _looks_like_name(v, key):
+                return v.strip()
+    for holder in holders:
+        for field in _message_fields(holder):
+            v = getattr(holder, field, None)
+            if isinstance(v, str):
+                found = _name_from_json(v.strip(), key)
+                if found:
+                    return found
+    return ""
+
+
+def describe_message_fields(msg, depth: int = 1) -> dict:
+    """{field: value preview} for a ROS message, one nesting level deep."""
+    out = {}
+    for field in _message_fields(msg):
+        v = getattr(msg, field, None)
+        if _message_fields(v) and depth > 0:
+            out[field] = describe_message_fields(v, depth - 1)
+        elif isinstance(v, str):
+            out[field] = v[:120]
+        elif isinstance(v, (bool, int, float)):
+            out[field] = v
+        else:
+            out[field] = type(v).__name__
+    return out
+
+
 class CooperPanelNode(Node):
     """ROS2 side of the panel: talks to the AimDK services."""
 
     def __init__(self, mute_service: str, speaker_volume: int = 70,
-                 battery_topic: str = "", mic_source_service: str = "",
-                 mic_internal: int = 1) -> None:
+                 mic_source_service: str = "", mic_internal: int = 1) -> None:
         super().__init__("cooper_panel")
         self._speaker_volume = max(1, min(100, int(speaker_volume)))
         self._mic_source_service = mic_source_service
         self._mic_internal = int(mic_internal)
-
-        # Live battery readout (auto-discovered BMS/battery topic).
-        self.battery: dict | None = None
-        self._battery_ts = 0.0
-        self._battery_warned = False
-        self._battery_pb_cls = None
-        self._battery_pb_tried = False
-        self.battery_pb_module = ""
-        self.battery_pb_class = "BmsState"
-        self._battery_topic_arg = battery_topic
-        threading.Thread(target=self._battery_watch, name="battery-watch",
-                         daemon=True).start()
         self._cbg = MutuallyExclusiveCallbackGroup()
         self._lock = threading.Lock()
 
@@ -159,102 +226,8 @@ class CooperPanelNode(Node):
         self.volume_state: int | None = None
         # Cache of resource_key -> resource, refreshed by list_dances().
         self._resource_cache: dict = {}
-
-    # ── battery ────────────────────────────────────────────────────────────
-
-    def _battery_watch(self) -> None:
-        """Find the battery/BMS topic and subscribe; retry until found."""
-        if get_message is None:
-            LOGGER.info("rosidl_runtime_py unavailable — battery readout disabled")
-            return
-        time.sleep(5.0)  # let DDS discovery populate the graph
-        while True:
-            try:
-                if self._try_subscribe_battery():
-                    return
-            except Exception:
-                LOGGER.debug("Battery topic discovery failed", exc_info=True)
-            time.sleep(30.0)
-
-    def _try_subscribe_battery(self) -> bool:
-        candidate = None
-        for name, types in self.get_topic_names_and_types():
-            if not types:
-                continue
-            if self._battery_topic_arg:
-                if name == self._battery_topic_arg:
-                    candidate = (name, types[0])
-                    break
-            elif any(h in name.lower() for h in ("battery", "bms")) or \
-                    any("battery" in t.lower() for t in types):
-                candidate = (name, types[0])
-                break
-        if candidate is None:
-            return False
-        try:
-            msg_type = get_message(candidate[1])
-            self.create_subscription(msg_type, candidate[0], self._on_battery, 10,
-                                     callback_group=self._cbg)
-        except Exception as exc:
-            # Permanent (e.g. the type's Python package is not importable) —
-            # log loudly and stop retrying; the panel keeps its placeholder.
-            LOGGER.warning("Battery: found topic %s (type %s) but cannot "
-                           "subscribe: %s", candidate[0], candidate[1], exc)
-            return True
-        LOGGER.info("Battery: subscribed to %s (%s)", candidate[0], candidate[1])
-        return True
-
-    def _battery_pb(self):
-        """Resolve the protobuf class for the wrapped BmsState, once."""
-        if self._battery_pb_tried:
-            return self._battery_pb_cls
-        self._battery_pb_tried = True
-        import importlib
-        candidates = list(BATTERY_PB_CANDIDATES)
-        if self.battery_pb_module:
-            candidates.insert(0, (self.battery_pb_module, self.battery_pb_class))
-        for mod, cls in candidates:
-            try:
-                self._battery_pb_cls = getattr(importlib.import_module(mod), cls)
-                LOGGER.info("Battery: protobuf decoder %s.%s", mod, cls)
-                return self._battery_pb_cls
-            except Exception:
-                continue
-        LOGGER.warning("Battery: no protobuf class for the wrapped BmsState "
-                       "found — set --battery-pb-module (and, if needed, "
-                       "--battery-pb-class)")
-        return None
-
-    def _on_battery(self, msg) -> None:
-        with suppress(Exception):
-            parsed = battery_fields(msg)
-            # AimRT wrapper: the real message is a serialized protobuf in
-            # the wrapper's data field — unwrap and re-parse.
-            payload = getattr(msg, "data", None)
-            if parsed.get("percent") is None and payload is not None:
-                cls = self._battery_pb()
-                if cls is not None:
-                    with suppress(Exception):
-                        pb = cls()
-                        pb.ParseFromString(bytes(payload))
-                        parsed = battery_fields(pb)
-            if parsed.get("percent") is None and not self._battery_warned:
-                # Log the real shape once so the parser can be matched to it
-                # (e.g. protobuf-bridged wrappers carry only raw bytes).
-                self._battery_warned = True
-                fields = {}
-                with suppress(Exception):
-                    fields = dict(msg.get_fields_and_field_types())
-                LOGGER.info("Battery message has no recognizable percentage; "
-                            "type=%s fields=%s", type(msg).__name__, fields)
-            self.battery = parsed
-            self._battery_ts = time.time()
-
-    def battery_snapshot(self) -> dict | None:
-        if self.battery is None:
-            return None
-        return {**self.battery,
-                "age_s": round(time.time() - self._battery_ts, 1)}
+        # One-time journal dump of a LinkCraft resource's fields (diagnosis).
+        self._resource_fields_logged = False
 
     # ── helpers ────────────────────────────────────────────────────────────
 
@@ -292,12 +265,13 @@ class CooperPanelNode(Node):
                 if "linkcraft" not in key.lower():
                     continue
                 self._resource_cache[key] = r
-                name = ""
-                for attr in ("resource_name", "name", "display_name", "description"):
-                    value = getattr(r, attr, "")
-                    if value:
-                        name = str(value)
-                        break
+                if not self._resource_fields_logged:
+                    # One-time field dump so the journal shows where this SDK
+                    # build keeps the human-readable LinkCraft name.
+                    self._resource_fields_logged = True
+                    LOGGER.info("LinkCraft resource fields for %s: %s",
+                                key, describe_message_fields(r))
+                name = resource_display_name(r, key)
                 version = ""
                 with suppress(Exception):
                     version = str(r.current_version.version)
@@ -845,50 +819,6 @@ class LibraryWatcher:
 MAX_MESSAGE_LEN = 500
 
 
-def battery_fields(msg) -> dict:
-    """Best-effort extraction of battery numbers from any BMS-style message."""
-    holders = [msg] + [getattr(msg, n, None) for n in ("battery", "bms", "data")]
-
-    def num(*names):
-        for holder in holders:
-            if holder is None:
-                continue
-            for n in names:
-                v = getattr(holder, n, None)
-                if isinstance(v, (int, float)) and not isinstance(v, bool):
-                    return float(v)
-        return None
-
-    pct = num("percentage", "soc", "battery_soc", "charge_percentage",
-              "state_of_charge", "charge")
-    if pct is not None:
-        if pct <= 1.0:          # sensor_msgs/BatteryState uses a 0-1 fraction
-            pct *= 100.0
-        pct = max(0.0, min(100.0, round(pct, 1)))
-
-    charging = None
-    for holder in holders:
-        if holder is None:
-            continue
-        status = getattr(holder, "power_supply_status", None)
-        if isinstance(status, int):
-            charging = status == 1  # POWER_SUPPLY_STATUS_CHARGING
-            break
-        flag = getattr(holder, "is_charging", None)
-        if isinstance(flag, bool):
-            charging = flag
-            break
-
-    out = {"percent": pct, "charging": charging}
-    voltage = num("voltage", "battery_voltage")
-    if voltage is not None:
-        out["voltage"] = round(voltage, 2)
-    temp = num("temperature", "battery_temperature")
-    if temp is not None:
-        out["temperature"] = round(temp, 1)
-    return out
-
-
 def run_action(motion: int, area: int) -> dict:
     """Execute one gesture via the standalone x2_action.py program."""
     t0 = time.perf_counter()
@@ -990,7 +920,6 @@ def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str,
                     "listening": node.listening_state,
                     "speaker": node.speaker_state,
                     "volume": node.volume_state,
-                    "battery": node.battery_snapshot(),
                     "show_running": shows.running(),
                     "pin_required": bool(pin),
                     "library_size": library_size,
@@ -1157,14 +1086,6 @@ def main() -> None:
     parser.add_argument("--speaker-volume", type=int, default=70,
                         help="volume (1-100) restored when the speaker is "
                              "switched back on after a mute")
-    parser.add_argument("--battery-topic", default="",
-                        help="battery/BMS topic to subscribe to (default: "
-                             "auto-discover any topic named battery/bms)")
-    parser.add_argument("--battery-pb-module", default="",
-                        help="python module of the protobuf BmsState used "
-                             "inside the AimRT wrapper (auto-tried candidates "
-                             "otherwise)")
-    parser.add_argument("--battery-pb-class", default="BmsState")
     parser.add_argument("--mic-source-service",
                         default="/aimdk_5Fmsgs/srv/SetMicSourceRequest",
                         help="mic source switch service, forwarded to every "
@@ -1195,11 +1116,8 @@ def main() -> None:
     rclpy.init()
     node = CooperPanelNode(mute_service=args.mute_service,
                            speaker_volume=args.speaker_volume,
-                           battery_topic=args.battery_topic,
                            mic_source_service=args.mic_source_service,
                            mic_internal=args.mic_internal)
-    node.battery_pb_module = args.battery_pb_module
-    node.battery_pb_class = args.battery_pb_class
     executor = MultiThreadedExecutor()
     executor.add_node(node)
     spin_thread = threading.Thread(target=executor.spin, name="ros-spin", daemon=True)

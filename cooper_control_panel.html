@@ -57,15 +57,6 @@
     background: #2c3540; border: 0; color: var(--text); font-weight: 550;
     border-radius: 10px; padding: 8px 12px; font-size: 14px; cursor: pointer;
   }
-  .batt {
-    font-size: 15px; font-weight: 650; padding: 6px 12px; border-radius: 10px;
-    background: var(--panel); border: 1px solid var(--edge); color: var(--dim);
-    position: absolute; left: 50%; transform: translateX(-50%); top: 0;
-    white-space: nowrap;
-  }
-  .batt.ok { color: var(--ok); }
-  .batt.warn { color: var(--warn); border-color: var(--warn); }
-  .batt.bad { color: var(--bad); border-color: var(--bad); }
   .ver { color: var(--dim); font-size: 12px; white-space: nowrap; }
   .ver.warn { color: var(--warn); font-weight: 650; }
 
@@ -261,7 +252,6 @@
       <circle cx="39" cy="31.5" r="4.4" fill="#fff"/>
       <rect x="26" y="45" width="12" height="4.5" rx="2.2" fill="#7a4d26"/>
     </svg> Cooper</h1>
-    <span class="batt" id="battChip" title="Waiting for battery data from Cooper">🔋 …</span>
     <button id="helpBtn" class="hbtn" title="How to use this panel">❓ Help</button>
     <button id="gear" title="Change IP address, port, or PIN">⚙ Settings</button>
     <span class="conn"><span class="dot" id="connDot"></span><span id="connText">connecting…</span></span>
@@ -460,10 +450,7 @@
       also retries every 3 seconds by itself), and double-check the address
       in ⚙ Settings — a typo there is the most common cause. While a panel
       is open, an on-demand API never stops itself; its idle timer only
-      runs when no panel is connected anywhere. Next to Help, a
-      <b>🔋 battery chip</b> shows Cooper's live charge (⚡ while
-      charging; amber under 30%, red under 15%) — it appears once the
-      robot's battery topic is detected and updates every few seconds.
+      runs when no panel is connected anywhere.
       At the far right, the small <b>version tag</b> (e.g. v2026.09.12-1)
       identifies this page's build; if it turns <b>amber</b> showing
       "page ≠ API", the webpage on optimus and the server on Cooper are on
@@ -660,7 +647,7 @@
 
   // Bumped on every change, in lockstep with SERVER_VERSION in
   // cooper_panel_server.py. Shown top-right; amber = page and API differ.
-  const PANEL_VERSION = "2026.09.12-5";
+  const PANEL_VERSION = "2026.09.12-6";
   $("verChip").textContent = "v" + PANEL_VERSION;
 
   function status(msg, cls = "") {
@@ -710,11 +697,10 @@
   const DEFAULT_MSGS = {
     greetAM: "Good morning {name}! Welcome to One Comcentre. It is wonderful to see you today.",
     greetPM: "Good afternoon {name}! Welcome to One Comcentre. It is wonderful to see you today.",
-    introMsg: "My name is Cooper. I am the One Comcentre Ambassador, an AI-enabled humanoid robot. " +
-      "I may still be in training, but I'm ready for the future. " +
-      "Before I begin, please give me at least 2 meters distance. " +
-      "Here is my best move. I hope you enjoy the show!",
-    goodbyeMsg: "Thank you for visiting. See you in One Comcentre for the future. Bye!",
+    introMsg: "My name is Cooper. I may still be at training, but I am ready for the future. " +
+      "I can do many things and even help lead exercise sessions for you and your teams. " +
+      "I hope you enjoy the show!",
+    goodbyeMsg: "See you at One Com Center",
   };
   const MSG_FIELDS = ["guestName", "greetAM", "greetPM", "introMsg", "goodbyeMsg"];
 
@@ -1028,23 +1014,6 @@
     } else {
       $("verChip").textContent = "v" + PANEL_VERSION;
       $("verChip").className = "ver";
-    }
-
-    // Live battery readout (from Cooper's BMS topic, via 3 s polling).
-    const b = s.battery;
-    if (b && b.percent != null && (b.age_s == null || b.age_s < 60)) {
-      $("battChip").textContent =
-        (b.charging ? "⚡ " : "🔋 ") + Math.round(b.percent) + "%";
-      $("battChip").title = "Cooper's battery" +
-        (b.voltage != null ? ` · ${b.voltage} V` : "") +
-        (b.charging ? " · charging" : "");
-      $("battChip").className = "batt " +
-        (b.percent < 15 ? "bad" : b.percent < 30 ? "warn" : "ok");
-    } else {
-      $("battChip").textContent = "🔋 …";
-      $("battChip").className = "batt";
-      $("battChip").title = "Waiting for battery data from Cooper " +
-        "(no battery/BMS topic found yet)";
     }
 
     // Show milestones reported live by the running show script.

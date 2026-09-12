@@ -99,11 +99,12 @@ FINAL_MOTION_WAIT_S = 1.0
 # ── Sequence texts ────────────────────────────────────────────────────────────
 GREETING_TEXT  = "Thank You Caden for remembering me! Hello everyone! It is wonderful to be here with you today."
 INTRO_TEXT     = (
-    " My name is Cooper"
-    " I may still be in training, but I'm ready for the future."
-    " I can do many things and even help lead exercise sessions for you and your teams. I hope you enjoy the show!"
+    "My name is Cooper."
+    " I may still be at training, but I am ready for the future."
+    " I can do many things and even help lead exercise sessions for you and your teams."
+    " I hope you enjoy the show!"
 )
-THANK_YOU_TEXT = "Thank you so much"
+THANK_YOU_TEXT = "Thank you very much"
 GOODBY_TEXT = "See you at One Com Center"
 
 POST_TTS_GRACE_S = 0.2
