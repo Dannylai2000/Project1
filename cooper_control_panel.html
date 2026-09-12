@@ -57,15 +57,7 @@
     border-radius: 10px; padding: 8px 12px; font-size: 14px; cursor: pointer;
   }
 
-  /* Actions */
-  #actionBtns { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
-  #actionBtns button {
-    background: #2c3540; color: var(--text); font-weight: 550;
-    padding: 13px 10px; font-size: 15px;
-  }
-  #actionBtns .state { grid-column: 1 / -1; }
-
-  /* Web server availability bar */
+  /* Control API availability bar */
   #serverBar {
     display: flex; align-items: center; gap: 10px; margin-top: 12px;
     padding: 11px 14px; border-radius: 12px; font-size: 14px;
@@ -272,15 +264,15 @@
   <section id="settings">
     <h2>Connection</h2>
     <div class="field">
-      <label for="ip">Cooper (primary robot) IP address</label>
+      <label for="ip">Control API address (the machine running
+        cooper_panel_server.py)</label>
       <div class="row">
-        <input type="text" id="ip" placeholder="Cooper IP address">
-        <input type="number" id="port" value="8080" min="1" max="65535" title="Port">
+        <input type="text" id="ip" placeholder="Control API IP address">
+        <input type="number" id="port" value="8081" min="1" max="65535" title="Port">
       </div>
     </div>
-    <div class="hint">This page is hosted on optimus; it talks directly to
-      Cooper's control API at the address above. At an event, just type
-      Cooper's IP on the event network.</div>
+    <div class="hint">Normally optimus itself (this page's host, port 8081).
+      If the API runs on Cooper instead, enter 192.168.68.54 port 8080.</div>
     <div class="field">
       <label for="robotSel">Active robot</label>
       <select id="robotSel">
@@ -304,7 +296,15 @@
         Performance diagnostics — show Cooper's response times</label>
     </div>
     <div class="field">
-      <label>Custom action buttons — label plus motion / area ids from the
+      <label for="dances">Show dance — the song used by ▶ Run full show and
+        Play dance only (shared by all devices)</label>
+      <div class="row">
+        <select id="dances"><option value="">Connect to load songs…</option></select>
+        <button class="secondary" id="refresh" title="Reload dance list">↻</button>
+      </div>
+    </div>
+    <div class="field">
+      <label>Custom actions — label plus motion / area ids from the
         AimDK preset-motion table (shared by all devices)</label>
       <div class="row">
         <input type="text" id="ca1Label" placeholder="Button 1 label">
@@ -358,7 +358,10 @@
 
   <section>
     <h2>Actions</h2>
-    <div id="actionBtns"><span class="state">Connect to Cooper to load actions…</span></div>
+    <div class="row">
+      <select id="actionSel"><option value="">Connect to load actions…</option></select>
+      <button id="actionRun">▶ Execute</button>
+    </div>
   </section>
 
   <section>
@@ -368,16 +371,13 @@
       <button class="secondary" id="reviewNew">Review</button>
     </div>
     <div class="row">
-      <select id="dances"><option value="">Loading dances…</option></select>
-      <button class="secondary" id="refresh" title="Reload dance list">↻</button>
-    </div>
-    <div class="row">
       <button class="big" id="runShow">▶ Run full show</button>
     </div>
     <div class="row">
       <button class="secondary" id="playDance">Play dance only</button>
       <label class="chk"><input type="checkbox" id="unmuteAfter"> listen again after show</label>
     </div>
+    <div class="hint" id="danceInfo">Show dance: — (set it in ⚙ Settings)</div>
   </section>
 
   <details class="card" id="messages">
@@ -437,23 +437,25 @@
       ambassador robot. All buttons talk directly to Cooper over the network.</p>
 
       <h3>Server status bar (top of the screen)</h3>
-      <p>Shows whether <b>Cooper's web server</b> is up and running at the
-      address chosen in Settings. Green = online and ready; red = the panel
-      cannot reach Cooper — controls are disabled until the connection comes
-      back. When red, press <b>🔄 Restart server</b>: on Cooper's on-demand
-      setup this starts the web server again within a couple of seconds (the
-      panel also keeps retrying by itself every 3 seconds). If it stays red,
-      check that Cooper is powered on, on the network, and that the right
-      setup is selected in ⚙ Settings. While a panel is open, the server
-      never shuts itself down — its idle timer only runs when no panel is
-      connected anywhere.</p>
+      <p>Shows whether the <b>control API</b> (the small program that relays
+      panel commands to the robot) is reachable at the address in Settings.
+      Green = online and ready; red = unreachable — all controls, including
+      the Microphone/Speaker radios, are disabled and show "unknown" until
+      the connection comes back. When red: press <b>🔄 Restart server</b>
+      (an on-demand install starts within a couple of seconds; the panel
+      also retries every 3 seconds by itself), and double-check the address
+      in ⚙ Settings — a typo there is the most common cause. While a panel
+      is open, an on-demand API never stops itself; its idle timer only
+      runs when no panel is connected anywhere.</p>
 
       <h3>⚙ Settings — Connection</h3>
       <ul>
-        <li><b>Cooper IP address / port</b> — the robot's network address
-          (this page itself is hosted on optimus). In the show suite it is
-          192.168.68.54; at an event, type Cooper's address on the event
-          network. The value is remembered.</li>
+        <li><b>Control API address / port</b> — where
+          <code>cooper_panel_server.py</code> runs. Normally that is optimus
+          itself (this page's host) on port 8081, so the default just works;
+          if the API runs on Cooper instead, enter 192.168.68.54 port 8080.
+          The value is remembered, and an invalid saved address is discarded
+          automatically.</li>
         <li><b>Panel PIN</b> — required for every control action (listening,
           dance, show, shortlist changes). Enter it once per device; it is
           remembered. Without the PIN the panel can only view status.</li>
@@ -482,25 +484,27 @@
       while a show is running.</p>
 
       <h3>Actions</h3>
-      <p>One-tap gestures Cooper performs immediately: <b>🤝 Shake hand</b>,
-      <b>🫶 Heart sign</b> (both hands), <b>👋 Right-hand goodbye</b>,
-      <b>🖐️ Left-hand wave</b>, and <b>😘 Blow kiss</b> — plus two
-      <b>⭐ customizable buttons</b> (out of the box: Right-hand wave and
-      Both-hands heart). Change a custom button's label and motion/area ids
-      in ⚙ Settings → "Custom action buttons"; the change applies to every
+      <p>Pick a gesture from the dropdown and press <b>▶ Execute</b> —
+      Cooper performs it immediately. Built in: 🤝 Shake hand, 🫶 Heart
+      sign (both hands), 👋 Right-hand goodbye, 🖐️ Left-hand wave, and
+      😘 Blow kiss, plus two <b>⭐ custom entries</b> (out of the box:
+      Right-hand wave and Both-hands heart) whose label and motion/area ids
+      are editable in ⚙ Settings → "Custom actions" — changes apply to every
       device. Gestures move the robot only — no speech, and the microphone
-      is not affected. All buttons are disabled while a full show is running
-      so gestures cannot interrupt the performance.</p>
+      is not affected. Execute is disabled while a full show is running so
+      gestures cannot interrupt the performance.</p>
 
       <h3>Performance</h3>
       <ul>
-        <li><b>Dance list</b> — the songs available for the show (filtered by
-          the shortlist, if one is set). ↻ reloads the list from Cooper.</li>
         <li><b>▶ Run full show</b> — the complete sequence: wave + welcome,
           introduction, dance, bow, clap, thank-you + heart, goodbye + blow
           kiss, goodbye wave. Buttons lock while a show is running.</li>
-        <li><b>Play dance only</b> — just the selected dance, nothing else.
-          Does not touch the microphone.</li>
+        <li><b>Show dance</b> — the song the show (and Play dance only)
+          uses is chosen once in ⚙ Settings → "Show dance" and shared by
+          all devices; the line under the buttons shows the current
+          choice.</li>
+        <li><b>Play dance only</b> — just the configured dance, nothing
+          else. Does not touch the microphone.</li>
         <li><b>listen again after show</b> — tick to have Cooper resume
           listening when the show ends.</li>
       </ul>
@@ -635,12 +639,24 @@
   }
 
   // ── connection settings (saved in the browser) ─────────────────────────
-  // The page is hosted on optimus; the only address that matters here is
-  // Cooper's control API. At an event, type Cooper's IP on that network.
-  const COOPER_DEFAULT_IP = "192.168.68.54";   // Cooper on the show-suite network
+  // The control API runs on optimus alongside Apache (port 8081), so the
+  // default address is simply the host this page came from. Discard any
+  // saved address that is not a valid IP or hostname (e.g. a typo like
+  // "192.168.54") so one bad entry can't leave the panel offline forever.
+  const API_DEFAULT_HOST = "192.168.68.51";  // optimus, when opened from a file
+  const API_DEFAULT_PORT = "8081";           // Apache has 8080 on the same host
+  const validAddr = v => /^[A-Za-z0-9][A-Za-z0-9.-]*$/.test(v) &&
+    (/[A-Za-z]/.test(v) || /^\d{1,3}(\.\d{1,3}){3}$/.test(v));
+
   $("pin").value = localStorage.getItem("cooper_pin") || "";
-  $("ip").value = localStorage.getItem("cooper_ip") || COOPER_DEFAULT_IP;
-  $("port").value = localStorage.getItem("cooper_port") || "8080";
+  let savedIp = localStorage.getItem("cooper_ip") || "";
+  if (savedIp && !validAddr(savedIp)) {
+    savedIp = "";  // broken save — fall back to defaults
+    localStorage.removeItem("cooper_ip");
+    localStorage.removeItem("cooper_port");
+  }
+  $("ip").value = savedIp || location.hostname || API_DEFAULT_HOST;
+  $("port").value = localStorage.getItem("cooper_port") || API_DEFAULT_PORT;
 
   // ── primary / secondary (backup) robot ─────────────────────────────────
   let activeRobot = localStorage.getItem("cooper_robot") || "primary";
@@ -927,9 +943,9 @@
     $("sbarSwitch").textContent = activeRobot === "primary"
       ? "🤖 Use backup robot" : "🤖 Back to primary robot";
     $("sbarText").textContent = up
-      ? `${robotName} · Cooper server ${addr} · Online`
-      : `${robotName} · Cooper server ${addr} · OFFLINE — controls disabled. ` +
-        `Press Restart server, or check ⚙ Settings and Cooper's power.`;
+      ? `${robotName} · control API ${addr} · Online`
+      : `${robotName} · control API ${addr} · OFFLINE — controls disabled. ` +
+        `Press Restart server, or check the address in ⚙ Settings.`;
     if (!up) {
       $("runShow").disabled = true;
       $("playDance").disabled = true;
@@ -1034,6 +1050,13 @@
   let allDances = [];
   let shortlist = new Set();
   let danceTimes = {};  // resource_key -> play time seconds (absent = default)
+  let showDance = "";   // resource key of the configured show dance (shared)
+
+  function updateDanceInfo() {
+    const opt = [...$("dances").options].find(o => o.value === showDance);
+    $("danceInfo").textContent = "Show dance: " +
+      (showDance && opt ? opt.textContent : "— (set it in ⚙ Settings)");
+  }
 
   const danceLabel = d => (d.name !== d.key ? d.name : d.key.slice(-16));
 
@@ -1071,8 +1094,10 @@
       opt.textContent = danceLabel(d);
       sel.appendChild(opt);
     }
-    const last = localStorage.getItem("cooper_dance");
-    if (last && [...sel.options].some(o => o.value === last)) sel.value = last;
+    if (showDance && [...sel.options].some(o => o.value === showDance)) {
+      sel.value = showDance;
+    }
+    updateDanceInfo();
   }
 
   function renderShortlist() {
@@ -1134,16 +1159,17 @@
     saveShortlist();
   }
 
-  // ── one-tap actions (gestures) ─────────────────────────────────────────
+  // ── actions: one dropdown + Execute (runs x2_action.py on the server) ──
   function setActionButtonsEnabled() {
-    document.querySelectorAll("#actionBtns button")
-      .forEach(b => { b.disabled = showRunning || !online; });
+    const off = showRunning || !online;
+    $("actionRun").disabled = off;
+    $("actionSel").disabled = off;
   }
 
   async function loadActions() {
     try {
       const { actions } = await api("/api/actions");
-      // Fill the custom-button editor in settings from the shared config.
+      // Fill the custom-action editor in settings from the shared config.
       actions.filter(a => a.custom).forEach((a, i) => {
         const n = i + 1;
         if (!$(`ca${n}Label`)) return;
@@ -1151,32 +1177,42 @@
         $(`ca${n}Motion`).value = a.motion;
         $(`ca${n}Area`).value = a.area;
       });
-      const box = $("actionBtns");
-      box.innerHTML = "";
+      const sel = $("actionSel");
+      const previous = sel.value;
+      sel.innerHTML = "";
       for (const a of actions) {
-        const btn = document.createElement("button");
-        btn.textContent = `${a.emoji} ${a.label}`;
-        btn.addEventListener("click", async () => {
-          btn.disabled = true;
-          try {
-            const data = await api("/api/action", {
-              method: "POST", body: JSON.stringify({ action: a.key }),
-            });
-            logDiag(a.label, data);
-            status(`${a.emoji} ${a.label} — Cooper is doing it.`, "ok");
-          } catch (e) {
-            status(`${a.label} failed: ${e.message}`, "err");
-          } finally {
-            btn.disabled = showRunning || !online;
-          }
-        });
-        box.appendChild(btn);
+        const opt = document.createElement("option");
+        opt.value = a.key;
+        opt.textContent = `${a.emoji} ${a.label}`;
+        sel.appendChild(opt);
+      }
+      if (previous && [...sel.options].some(o => o.value === previous)) {
+        sel.value = previous;
       }
       setActionButtonsEnabled();
     } catch (e) {
       status(`Loading actions failed: ${e.message}`, "err");
     }
   }
+
+  $("actionRun").addEventListener("click", async () => {
+    const sel = $("actionSel");
+    const key = sel.value;
+    if (!key) { status("Pick an action first.", "err"); return; }
+    const label = sel.selectedOptions[0].textContent;
+    $("actionRun").disabled = true;
+    try {
+      const data = await api("/api/action", {
+        method: "POST", body: JSON.stringify({ action: key }),
+      });
+      logDiag(label, data);
+      status(`${label} — Cooper is doing it.`, "ok");
+    } catch (e) {
+      status(`${label} failed: ${e.message}`, "err");
+    } finally {
+      $("actionRun").disabled = showRunning || !online;
+    }
+  });
 
   async function refreshDances() {
     try {
@@ -1187,6 +1223,7 @@
       allDances = dRes.dances;
       shortlist = new Set(sRes.shortlist);
       danceTimes = sRes.times || {};
+      showDance = sRes.show_dance || "";
 
       // One-time migration: move an old browser-stored shortlist to Cooper.
       const legacy = localStorage.getItem("cooper_shortlist");
@@ -1262,15 +1299,26 @@
     }
   });
 
+  $("dances").addEventListener("change", async () => {
+    showDance = $("dances").value;
+    updateDanceInfo();
+    try {
+      await api("/api/shortlist", {
+        method: "POST", body: JSON.stringify({ show_dance: showDance }),
+      });
+      status(`Show dance set: ${$("dances").selectedOptions[0].textContent}`, "ok");
+    } catch (e) {
+      status(`Saving show dance failed: ${e.message}`, "err");
+    }
+  });
+
   $("playDance").addEventListener("click", async () => {
-    const key = $("dances").value;
-    if (!key) { status("Pick a dance first.", "err"); return; }
-    localStorage.setItem("cooper_dance", key);
+    // The server plays the configured show dance.
     $("playDance").disabled = true;
     try {
-      const data = await api("/api/dance", { method: "POST", body: JSON.stringify({ key }) });
+      const data = await api("/api/dance", { method: "POST", body: "{}" });
       logDiag("Play dance", data);
-      status(`Dance started: ${$("dances").selectedOptions[0].textContent}`, "ok");
+      status("Dance started.", "ok");
     } catch (e) {
       status(`Dance failed: ${e.message}`, "err");
     } finally {
@@ -1279,13 +1327,11 @@
   });
 
   $("runShow").addEventListener("click", async () => {
-    localStorage.setItem("cooper_dance", $("dances").value);
     $("runShow").disabled = true;
     try {
       const data = await api("/api/show", {
         method: "POST",
         body: JSON.stringify({
-          dance_key: $("dances").value || null,
           unmute_after: $("unmuteAfter").checked,
           name: $("guestName").value.trim(),
           greeting_am: $("greetAM").value.trim(),

@@ -39,8 +39,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import rclpy
-from aimdk_msgs.msg import CommonState, McControlArea, McPresetMotion, RequestHeader
-from aimdk_msgs.srv import ExecuteActionResource, GetRobotResources, SetMcPresetMotion
+from aimdk_msgs.srv import ExecuteActionResource, GetRobotResources
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
@@ -63,7 +62,6 @@ DEFAULT_GET_RESOURCES_SVC  = "/aimdk_5Fmsgs/srv/GetRobotResources"
 DEFAULT_EXECUTE_ACTION_SVC = "/aimdk_5Fmsgs/srv/ExecuteActionResource"
 DEFAULT_SET_MUTE_SVC       = "/aimdk_5Fmsgs/srv/SetMute"
 DEFAULT_SET_VOLUME_SVC     = "/aimdk_5Fmsgs/srv/SetVolume"
-DEFAULT_PRESET_MOTION_SVC  = "/aimdk_5Fmsgs/srv/SetMcPresetMotion"
 
 # One-tap gestures for the panel's Actions card. Motion/area IDs follow the
 # AimDK preset-motion table (1001 raise, 1002 wave, 1003 handshake,
@@ -77,6 +75,9 @@ ACTIONS = {
 }
 
 SHOW_SCRIPT     = Path(__file__).resolve().parent / "x2_showroom_demo.py"
+
+# Gestures run in their own program, invoked per Action press.
+ACTION_SCRIPT   = Path(__file__).resolve().parent / "x2_action.py"
 
 # Shared panel settings (dance shortlist + play times), one file for all
 # devices, stored next to the server on Cooper.
@@ -107,9 +108,6 @@ class CooperPanelNode(Node):
             self._set_mute = self.create_client(
                 SetMute, mute_service, callback_group=self._cbg
             )
-        self._preset_motion = self.create_client(
-            SetMcPresetMotion, DEFAULT_PRESET_MOTION_SVC, callback_group=self._cbg
-        )
         self._set_volume = None
         if SetVolume is not None:
             self._set_volume = self.create_client(
@@ -215,46 +213,6 @@ class CooperPanelNode(Node):
         if code not in (None, 0) or any(w in msg.lower() for w in ("fail", "error", "reject")):
             raise RuntimeError(f"dance rejected (code={code}): {msg}")
         return {"code": code, "message": msg, "timing": timing}
-
-    def run_preset_motion(self, motion_id: int, area_id: int) -> dict:
-        """Trigger a preset motion (gesture). Returns a timing breakdown."""
-        timing: dict = {}
-        t0 = time.perf_counter()
-        if not self._preset_motion.wait_for_service(timeout_sec=5.0):
-            raise RuntimeError("SetMcPresetMotion service not available")
-        timing["service_wait_ms"] = round((time.perf_counter() - t0) * 1000, 1)
-
-        req = SetMcPresetMotion.Request()
-        req.header         = RequestHeader()
-        req.motion         = McPresetMotion()
-        req.area           = McControlArea()
-        req.motion.value   = int(motion_id)
-        req.area.value     = int(area_id)
-        req.interrupt      = False
-        req.ani_path       = ""
-        req.play_timestamp = 0
-
-        response = None
-        t0 = time.perf_counter()
-        for _ in range(8):
-            with suppress(Exception):
-                req.header.stamp = self.get_clock().now().to_msg()
-            future = self._preset_motion.call_async(req)
-            done = threading.Event()
-            future.add_done_callback(lambda _: done.set())
-            if done.wait(0.25) and future.done():
-                response = future.result()
-                break
-        if response is None:
-            raise RuntimeError("SetMcPresetMotion timed out")
-        timing["robot_ack_ms"] = round((time.perf_counter() - t0) * 1000, 1)
-
-        code  = int(response.response.header.code)
-        state = int(response.response.state.value)
-        if code == 0 or state in (CommonState.SUCCESS, CommonState.RUNNING):
-            LOGGER.info("Preset motion %d/%d accepted", motion_id, area_id)
-            return timing
-        raise RuntimeError(f"motion rejected (code={code} state={state})")
 
     def set_listening(self, listen: bool) -> dict:
         """Unmute (listen=True) or mute (listen=False) Cooper's microphones.
@@ -554,6 +512,27 @@ class PanelConfig:
         LOGGER.info("Dance play times saved for %d song(s)", len(cleaned))
         return cleaned
 
+    def get_show_dance(self) -> str:
+        """Resource key of the dance the full show uses ("" = script default)."""
+        with self._lock:
+            try:
+                data = json.loads(self._path.read_text())
+            except (OSError, json.JSONDecodeError):
+                return ""
+        return str(data.get("show_dance") or "")[: self.MAX_KEY_LEN]
+
+    def set_show_dance(self, key) -> str:
+        key = str(key or "").strip()[: self.MAX_KEY_LEN]
+        with self._lock:
+            try:
+                data = json.loads(self._path.read_text())
+            except (OSError, json.JSONDecodeError):
+                data = {}
+            data["show_dance"] = key
+            self._path.write_text(json.dumps(data, indent=2))
+        LOGGER.info("Show dance set to %r", key or "(script default)")
+        return key
+
     def get_seen_songs(self) -> list[str] | None:
         """Song keys every device has already been shown. None = never set."""
         with self._lock:
@@ -646,6 +625,22 @@ class LibraryWatcher:
 
 
 MAX_MESSAGE_LEN = 500
+
+
+def run_action(motion: int, area: int) -> dict:
+    """Execute one gesture via the standalone x2_action.py program."""
+    t0 = time.perf_counter()
+    proc = subprocess.run(
+        [sys.executable, str(ACTION_SCRIPT),
+         "--motion", str(int(motion)), "--area", str(int(area))],
+        capture_output=True, text=True, timeout=30,
+    )
+    timing = {"action_ms": round((time.perf_counter() - t0) * 1000, 1)}
+    if proc.returncode != 0:
+        detail = (proc.stderr.strip() or proc.stdout.strip()
+                  or f"exit code {proc.returncode}")
+        raise RuntimeError(detail.splitlines()[-1])
+    return timing
 
 
 def resolve_messages(body: dict) -> tuple[str | None, str | None, str | None]:
@@ -746,7 +741,8 @@ def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str,
             if self.path == "/api/shortlist":
                 return self._send_json({"ok": True,
                                         "shortlist": config.get_shortlist(),
-                                        "times": config.get_dance_times()})
+                                        "times": config.get_dance_times(),
+                                        "show_dance": config.get_show_dance()})
             if self.path == "/api/actions":
                 actions = [
                     {"key": k, "label": a["label"], "emoji": a["emoji"]}
@@ -770,9 +766,12 @@ def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str,
 
             try:
                 if self.path == "/api/dance":
-                    key = str(body.get("key") or "")
+                    # No key in the request = play the configured show dance.
+                    key = str(body.get("key") or "") or config.get_show_dance()
                     if not key:
-                        return self._send_json({"ok": False, "error": "missing 'key'"}, 400)
+                        return self._send_json(
+                            {"ok": False,
+                             "error": "no show dance configured — pick one in Settings"}, 400)
                     result = node.start_dance(key)
                     timing = result.pop("timing", {})
                     timing["server_total_ms"] = server_ms()
@@ -817,9 +816,12 @@ def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str,
                         result["shortlist"] = config.set_shortlist(body.get("shortlist"))
                     if "times" in body:
                         result["times"] = config.set_dance_times(body.get("times"))
+                    if "show_dance" in body:
+                        result["show_dance"] = config.set_show_dance(body.get("show_dance"))
                     if not result:
                         return self._send_json(
-                            {"ok": False, "error": "missing 'shortlist' or 'times'"}, 400)
+                            {"ok": False,
+                             "error": "missing 'shortlist', 'times' or 'show_dance'"}, 400)
                     return self._send_json({"ok": True, **result})
 
                 if self.path == "/api/songs_seen":
@@ -839,14 +841,16 @@ def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str,
                     if shows.running():
                         return self._send_json(
                             {"ok": False, "error": "a show is running — wait for it to finish"}, 409)
-                    timing = node.run_preset_motion(action["motion"], action["area"])
+                    # Gestures execute in their own program (x2_action.py).
+                    timing = run_action(action["motion"], action["area"])
                     timing["server_total_ms"] = server_ms()
                     return self._send_json({"ok": True, "action": action["label"],
                                             "timing": timing})
 
                 if self.path == "/api/show":
                     greeting, intro, goodbye = resolve_messages(body)
-                    dance_key = str(body.get("dance_key") or "") or None
+                    dance_key = (str(body.get("dance_key") or "")
+                                 or config.get_show_dance() or None)
                     # Per-song play time from the shared config (None = default).
                     dance_duration = None
                     if dance_key:

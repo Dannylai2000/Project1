@@ -54,19 +54,20 @@ Features:
 - **Dance picker** — lists every LinkCraft resource live from Cooper's
   library, play any of them on demand, or run the **full show** with the
   selected dance.
-- **Actions** — one-tap gesture buttons on the main screen: shake hand,
-  heart sign (both hands), right-hand goodbye, left-hand wave, and blow
-  kiss (preset motions via `SetMcPresetMotion`). The registry lives in
-  `ACTIONS` at the top of `cooper_panel_server.py`, so adding a gesture
-  or fixing a motion ID is a one-line edit. Blocked while a show is
-  running. IDs follow the AimDK preset-motion table (1001 raise,
-  1002 wave, 1003 handshake, 1004 airkiss); heart, wave, and blow kiss
-  match the working show script. ⚠️ Left-hand wave uses area 1 —
-  verify the left-arm area id on the robot (right arm is area 2).
-  Two extra **⭐ customizable buttons** (defaults: Right-hand wave
-  1002/2 and Both-hands heart 1007/3) can be relabeled and repointed at
-  any motion/area from ⚙ Settings; stored in the shared config on
-  Cooper (`custom_actions`), PIN required to change.
+- **Actions** — a dropdown of gestures plus a **▶ Execute** button:
+  shake hand, heart sign (both hands), right-hand goodbye, left-hand
+  wave, blow kiss, and two **⭐ custom entries** (defaults: Right-hand
+  wave 1002/2 and Both-hands heart 1007/3) relabelable/repointable from
+  ⚙ Settings (shared config `custom_actions`, PIN to change). Each
+  execution runs the standalone **`x2_action.py`** program (also usable
+  by hand: `python3 x2_action.py --motion 1002 --area 2`). Blocked while
+  a show runs. IDs follow the AimDK preset-motion table (1001 raise,
+  1002 wave, 1003 handshake, 1004 airkiss). ⚠️ Left-hand wave uses
+  area 1 — verify the left-arm area id on the robot (right arm is 2).
+- **Show dance** — chosen once in ⚙ Settings (shared config
+  `show_dance`); ▶ Run full show and Play dance only use it, and the
+  Performance card displays the current choice. The main screen has no
+  dance selector.
 - **Secondary (backup) robot** — ⚙ Settings holds a second X2's IP
   address and an Active robot selector; if the active robot fails, the
   red status bar offers "🤖 Use backup robot" to continue the
@@ -81,10 +82,11 @@ Features:
   via `SetVolume`). Muted = volume 0; "Speaker On" restores the last
   non-zero level set (initially `--speaker-volume`, default 70). The
   speaker and volume stay usable during a show for silent rehearsals.
-- **Cooper IP address field** — in the ⚙ settings panel; defaults to
-  192.168.68.54 and is saved in the browser (localStorage). At an event,
-  just type Cooper's IP on that network. The page itself is hosted on
-  optimus.
+- **Control API address field** — in ⚙ Settings; defaults to the page's
+  own host on port 8081 (the recommended setup runs the API on optimus,
+  next to Apache), saved in the browser, and an invalid saved address is
+  discarded automatically. Point it at 192.168.68.54:8080 instead if the
+  API runs on Cooper.
 - **PIN protection** — all control actions (listening, dance, show)
   require a PIN when the server is started with one. The page asks for it
   in ⚙ settings and remembers it.
