@@ -544,12 +544,6 @@ class IntroSequenceNode(Node):
             self._play_emoji("dance")
             self._run_linkcraft_action(self._dance_key, self._dance_duration_s)
 
-            self.get_logger().info("=== STEP 3a: Bow ===")
-            self._run_preset_motion(3001, 11, FINAL_MOTION_WAIT_S)
-
-            self.get_logger().info("=== STEP 3b: Clap ===")
-            self._run_preset_motion(3017, 11, FINAL_MOTION_WAIT_S)
-
             # Thank-you speech and heart gesture play together.
             self.get_logger().info("=== STEP 4: THANK YOU + HEART ===")
             self._play_emoji("closing")
@@ -568,8 +562,6 @@ class IntroSequenceNode(Node):
                 mark="goodbye_speech",
             )
 
-            self.get_logger().info("=== STEP 6: WAVE GOODBYE ===")
-            self._run_preset_motion(3031, 11, 2.0)
 
             self.get_logger().info("=== Sequence complete ===")
         except Exception:
