@@ -68,9 +68,9 @@ DEFAULT_PLAY_EMOJI_SVC     = "/aimdk_5Fmsgs/srv/PlayEmoji"
 DEFAULT_EMOJI_ID = 1
 
 # ── Dance (step 3) ────────────────────────────────────────────────────────────
-DANCE_RESOURCE_KEY = "linkcraft_resource_onnx_01KYPD7XFJ6HA7NKHY0RE6DN9K"  # APT 32
+DANCE_RESOURCE_KEY = "linkcraft_resource_onnx_01KGQ8MDSC6T01FSQSH8KTP9BF"  # Taichi
 #DANCE_RESOURCE_KEY = "linkcraft_resource_onnx_01KYXBBE96QHBV3W025107HQ20" # Smooth Criminal 66
-DANCE_DURATION_S   = 30.0
+DANCE_DURATION_S   = 33.0
 
 # ── Final preset motion (step 5) ──────────────────────────────────────────────
 # Heart gesture (both hands): motion=1007, area=3
