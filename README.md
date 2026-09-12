@@ -72,11 +72,14 @@ Features:
   shortlist sets how long the full show waits during that dance
   (blank = 30 s default, 0 = don't wait). Stored on the robot
   (`dance_times` in `cooper_panel_config.json`), shared by all devices.
-- **Listening mode switch** — Listening ON / OFF buttons (mic mute via
-  `SetMute`), with the current state shown in the panel.
-- **Cooper IP address field** — in the ⚙ settings panel; defaults to the
-  host serving the page and is saved in the browser (localStorage), so if
-  Cooper's IP changes just type the new one and press Connect.
+- **Audio radio buttons** — Microphone On / Off (mic mute via `SetMute`)
+  and Speaker On / Muted (volume 0 via `SetVolume`, restored to
+  `--speaker-volume`, default 70, when switched back on). The speaker
+  stays usable during a show for silent rehearsals.
+- **Cooper IP address field** — in the ⚙ settings panel; defaults to
+  192.168.68.54 and is saved in the browser (localStorage). At an event,
+  just type Cooper's IP on that network. The page itself is hosted on
+  optimus.
 - **PIN protection** — all control actions (listening, dance, show)
   require a PIN when the server is started with one. The page asks for it
   in ⚙ settings and remembers it.
@@ -159,9 +162,8 @@ sudo ./deploy/install_cooper_service.sh --pin 2468 --always-on   # at boot
 ```
 
 - **On-demand** (default, systemd socket activation): the webserver is
-  NOT running until something connects to port 8080 — selecting a setup
-  in the panel (or opening the page served by Cooper) starts it
-  automatically within a second or two. After 30 minutes without
+  NOT running until something connects to port 8080 — opening the panel
+  page starts it automatically within a second or two. After 30 minutes without
   requests (`--idle-exit` to change) it stops itself; the next
   connection starts it again — the panel's red OFFLINE bar has a
   **🔄 Restart server** button for exactly this, and its 3 s polling
@@ -174,29 +176,23 @@ sudo ./deploy/install_cooper_service.sh --pin 2468 --always-on   # at boot
 The server also supports these directly: `--idle-exit N` (minutes,
 0 = run forever) and systemd's `LISTEN_FDS` socket activation.
 
-The **webpage** can be hosted three ways, and the ⚙ Settings dropdown
-("Where is Cooper being used?") switches between them with one selection:
-
-| Profile | Page hosted by | Cooper address |
-|---|---|---|
-| Show suite — One Comcentre | Apache on `optimus` (192.168.68.51:8080) | fixed 192.168.68.54:8080 |
-| Cooper's built-in webserver | `cooper_panel_server.py` itself | automatic (the serving host) |
-| Outside event — portable | notebook Apache / opened from file | typed once, remembered |
-
-For the Apache hosts (optimus or the portable notebook), just copy
-`cooper_control_panel.html` (renamed `index.html` if you like) and
-optionally `cooper_icon.png` into the web root, e.g.
-`/var/www/html/` on Ubuntu. The page talks to Cooper's API directly from
-the browser, so Apache needs no extra modules or proxy setup.
+The **webpage** is hosted on `optimus` (Apache at 192.168.68.51:8080) —
+Cooper serves the control API only. Copy `cooper_control_panel.html`
+(renamed `index.html` if you like) and optionally the icon as
+`favicon.png` into `/var/www/html/`. The page talks to Cooper's API
+directly from the browser, so Apache needs no extra modules or proxy
+setup. At an outside event, open the same HTML file straight from a
+folder — no webserver needed — and type Cooper's event IP in ⚙ Settings.
 
 REST API (used by the page, also handy for scripting):
 
 | Endpoint | Method | Body | Purpose |
 |---|---|---|---|
-| `/api/status` | GET | — | server + listening state |
+| `/api/status` | GET | — | server + mic/speaker/show state |
 | `/api/dances` | GET | — | LinkCraft dance list |
 | `/api/dance` | POST | `{"key": "..."}` | play one dance |
 | `/api/listening` | POST | `{"listen": true\|false}` | mic on/off |
+| `/api/speaker` | POST | `{"on": true\|false}` | speaker on/muted |
 | `/api/show` | POST | `{"dance_key": "...", "unmute_after": false}` | run the full show |
 
 The show script also accepts the dance directly:

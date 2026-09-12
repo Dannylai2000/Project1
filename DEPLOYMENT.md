@@ -40,7 +40,7 @@ Replace `2468` with the real panel PIN. Modes:
 
 | Mode | Behaviour |
 |---|---|
-| **On-demand** (default) | Nothing runs until a panel connects to port 8080 — selecting a setup in the panel starts the webserver automatically in ~1–2 s. Stops itself after 30 min with no panels open (never while a panel is open or a show is running). The panel's red-bar **🔄 Restart server** button or its 3 s polling revives it instantly. |
+| **On-demand** (default) | Nothing runs until a panel connects to port 8080 — opening the panel page starts the control API automatically in ~1–2 s. Stops itself after 30 min with no panels open (never while a panel is open or a show is running). The panel's red-bar **🔄 Restart server** button or its 3 s polling revives it instantly. |
 | `--idle-exit 0` | Same on-demand start, but no auto-stop — recommended for event days. |
 | `--always-on` | Starts at boot, restarts on crash, never stops. |
 
@@ -61,16 +61,20 @@ server automatically.
 
 ### 4. First-run verification
 
-Browse to `http://192.168.68.54:8080` from any device and check, in order:
+Open the panel page (from optimus, or `cooper_control_panel.html` straight
+from a folder) and check, in order:
 
 1. The **server status bar turns green** ("Cooper server … Online").
 2. The **dance list loads with readable song names** — raw resource keys mean
    the display-name field needs mapping in `cooper_panel_server.py`.
-3. The **listening toggle** works — this exercises the `SetMute` service. If
-   it errors, check the request field name:
-   `ros2 interface show aimdk_msgs/srv/SetMute`.
-4. Each **Action button** (🤝 🫶 👋 😘) performs the right gesture
-   (handshake = preset motion 1003).
+3. The **Microphone On/Off radios** work — this exercises the `SetMute`
+   service; if it errors, check the request field name:
+   `ros2 interface show aimdk_msgs/srv/SetMute`. Then the **Speaker
+   On/Muted radios** — these exercise `SetVolume` (muted = volume 0,
+   On restores `--speaker-volume`, default 70).
+4. Each **Action button** (🤝 🫶 👋 🖐️ 😘) performs the right gesture
+   (handshake = preset motion 1003; left-hand wave uses area 1 — verify
+   the left-arm area id).
 5. **Run a full show** with Performance diagnostics on: the mic mutes, the
    timeline fills in (launch → first speech → dance → goodbye → complete),
    and the face plays the eye open/close emoji. A different expression means
@@ -92,28 +96,30 @@ selector) to carry on with the other robot.
 Note: the shortlist, per-dance play times, and new-song alerts are stored
 on each robot, so configure them once per robot.
 
-## B. optimus — show-suite Apache (optional page host)
+## B. optimus — the webserver hosting the page
 
-On the Ubuntu PC `optimus` (192.168.68.51, Apache on port 8080):
+The panel webpage is hosted ONLY on the Ubuntu PC `optimus`
+(192.168.68.51, Apache on port 8080) — Cooper runs the control API, not
+the page:
 
 ```bash
 sudo cp cooper_control_panel.html /var/www/html/index.html
-sudo cp cooper_icon.png /var/www/html/    # optional
+sudo cp cooper_icon.png /var/www/html/favicon.png    # optional tab icon
 ```
 
-Staff browse `http://192.168.68.51:8080`; the panel defaults to the
-**Show suite** profile and talks directly to Cooper at 192.168.68.54:8080.
+Staff browse `http://192.168.68.51:8080`; the panel talks directly to
+Cooper's API at 192.168.68.54:8080 (the default address in ⚙ Settings).
 No Apache modules or proxy configuration needed.
 
 > Re-copy `cooper_control_panel.html` whenever panel updates are pulled —
 > this is the one easy-to-forget step.
 
-## C. Portable notebook — events (optional)
+## C. Events — no webserver needed
 
-Same two-file copy into its Apache web root, or skip Apache entirely and open
-`cooper_control_panel.html` straight from a folder. In ⚙ Settings pick
-**"Outside event — portable"** and type Cooper's event IP once — it is
-remembered separately from the show-suite settings.
+Take a copy of `cooper_control_panel.html` on the notebook or tablet and
+open it straight from a folder in the browser. In ⚙ Settings type
+Cooper's event IP and press Connect; back at the show suite, change it
+back to 192.168.68.54.
 
 For events, install Cooper's service with `--idle-exit 0` so there is no idle
 timer while waiting for the performance slot.
