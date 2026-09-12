@@ -51,6 +51,12 @@ try:
 except ImportError:  # pragma: no cover
     PlayEmoji = None
 
+# SetVolume drives the speaker (0-100) — used to guarantee the show is audible.
+try:
+    from aimdk_msgs.srv import SetVolume
+except ImportError:  # pragma: no cover
+    SetVolume = None
+
 
 LOGGER = logging.getLogger("x2_intro_sequence")
 
@@ -61,6 +67,11 @@ DEFAULT_PRESET_MOTION_SVC  = "/aimdk_5Fmsgs/srv/SetMcPresetMotion"
 DEFAULT_SET_MC_ACTION_SVC  = "/aimdk_5Fmsgs/srv/SetMcAction"
 DEFAULT_SET_MUTE_SVC       = "/aimdk_5Fmsgs/srv/SetMute"
 DEFAULT_PLAY_EMOJI_SVC     = "/aimdk_5Fmsgs/srv/PlayEmoji"
+DEFAULT_SET_VOLUME_SVC     = "/aimdk_5Fmsgs/srv/SetVolume"
+
+# Speaker volume set at show start so speech and dance music are audible
+# even if the speaker was muted earlier (-1 = leave the volume untouched).
+DEFAULT_SHOW_VOLUME = 70
 
 # Face expression played at each show phase (welcome, dance, closing).
 # Check the AimDK emoji table for the eye open/close (blink) expression id
@@ -105,6 +116,7 @@ class IntroSequenceNode(Node):
         goodbye_text: str = GOODBY_TEXT,
         timing_file: str = "",
         emoji_id: int = DEFAULT_EMOJI_ID,
+        volume: int = DEFAULT_SHOW_VOLUME,
     ) -> None:
         super().__init__("x2_intro_sequence")
 
@@ -140,6 +152,17 @@ class IntroSequenceNode(Node):
         elif emoji_id >= 0:
             LOGGER.warning("aimdk_msgs.srv.PlayEmoji not available in this SDK "
                            "build — face emoji disabled")
+
+        # ── SetVolume (make sure the show is audible) ──────────────────────
+        self._volume = volume
+        self._set_volume = None
+        if SetVolume is not None and volume >= 0:
+            self._set_volume = self.create_client(
+                SetVolume, DEFAULT_SET_VOLUME_SVC, callback_group=self._cbg
+            )
+        elif volume >= 0:
+            LOGGER.warning("aimdk_msgs.srv.SetVolume not available in this SDK "
+                           "build — cannot set the speaker volume")
 
         # ── SetMute (microphone on/off) ────────────────────────────────────
         self._set_mute = None
@@ -233,6 +256,44 @@ class IntroSequenceNode(Node):
 
         self._emoji.call_async(req)
         LOGGER.info("Face emoji (eye open/close) requested: %s", note)
+
+    # ── Speaker volume ──────────────────────────────────────────────────────
+
+    def _ensure_volume(self) -> None:
+        """Set the speaker volume so speech and dance music are audible.
+
+        Guards against a speaker left muted (volume 0) from earlier panel
+        use. Failure only logs a warning — the show carries on regardless.
+        """
+        if self._set_volume is None:
+            return
+        if not self._set_volume.wait_for_service(timeout_sec=2.0):
+            LOGGER.warning("SetVolume not available — speaker volume unchanged")
+            return
+
+        req = SetVolume.Request()
+        with suppress(Exception):
+            self._stamp(req)
+        # Field names vary between SDK builds — set whichever exists.
+        for holder in (req, getattr(req, "volume_req", None)):
+            if holder is None:
+                continue
+            for field in ("audio_volume", "volume"):
+                if hasattr(holder, field):
+                    setattr(holder, field, int(self._volume))
+
+        response = None
+        for _ in range(8):
+            future = self._set_volume.call_async(req)
+            done = threading.Event()
+            future.add_done_callback(lambda _: done.set())
+            if done.wait(0.5) and future.done():
+                response = future.result()
+                break
+        if response is None:
+            LOGGER.warning("SetVolume timed out — speaker volume unchanged")
+            return
+        LOGGER.info("Speaker volume set to %d for the show", self._volume)
 
     # ── Microphone mute (listening on/off) ─────────────────────────────────
 
@@ -524,6 +585,9 @@ class IntroSequenceNode(Node):
 
     def _run_sequence(self) -> None:
         try:
+            self.get_logger().info("=== STEP 0a: SPEAKER VOLUME ===")
+            self._ensure_volume()
+
             if self._mute_enabled:
                 self.get_logger().info("=== STEP 0: MUTE MIC (stop listening) ===")
                 self._set_listening(False)
@@ -610,6 +674,9 @@ def main() -> None:
     parser.add_argument("--emoji-id", type=int, default=DEFAULT_EMOJI_ID,
                         help="face expression id played at welcome, dance, and "
                              "closing (eye open/close); -1 disables")
+    parser.add_argument("--volume", type=int, default=DEFAULT_SHOW_VOLUME,
+                        help="speaker volume (0-100) set at show start so the "
+                             "show is audible; -1 = leave the volume unchanged")
     parser.add_argument("--log-level", default=os.getenv("LOG_LEVEL", "INFO"))
     args = parser.parse_args()
 
@@ -631,6 +698,7 @@ def main() -> None:
         goodbye_text=args.goodbye_text,
         timing_file=args.timing_file,
         emoji_id=args.emoji_id,
+        volume=args.volume,
     )
     executor = MultiThreadedExecutor()
     executor.add_node(node)

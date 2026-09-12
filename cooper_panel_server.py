@@ -328,6 +328,7 @@ class ShowRunner:
         intro: str | None = None,
         goodbye: str | None = None,
         dance_duration: float | None = None,
+        volume: int | None = None,
     ) -> dict:
         t0 = time.perf_counter()
         with self._lock:
@@ -346,6 +347,8 @@ class ShowRunner:
                 cmd += ["--goodbye-text", goodbye]
             if dance_duration is not None:
                 cmd += ["--dance-duration", str(dance_duration)]
+            if volume is not None:
+                cmd += ["--volume", str(int(volume))]
             cmd += ["--timing-file", str(TIMING_FILE)]
             with suppress(OSError):
                 TIMING_FILE.unlink()
@@ -855,6 +858,12 @@ def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str,
                     dance_duration = None
                     if dance_key:
                         dance_duration = config.get_dance_times().get(dance_key)
+                    # Guarantee the show is audible — unless the speaker was
+                    # deliberately muted in the panel (silent rehearsal).
+                    if node.speaker_state is False:
+                        volume = -1  # leave the mute in place
+                    else:
+                        volume = node._speaker_volume
                     timing = shows.start(
                         dance_key=dance_key,
                         unmute_after=bool(body.get("unmute_after", False)),
@@ -862,7 +871,11 @@ def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str,
                         intro=intro,
                         goodbye=goodbye,
                         dance_duration=dance_duration,
+                        volume=volume,
                     )
+                    if volume >= 0:
+                        node.speaker_state = True
+                        node.volume_state = volume
                     timing["server_total_ms"] = server_ms()
                     return self._send_json({"ok": True, "show_running": True,
                                             "timing": timing})
