@@ -349,7 +349,8 @@
     <div class="field">
       <label>Dance song shortlist — ticked songs appear in the dance list
         (none ticked = show every song). The seconds box sets each song's
-        play time in the full show: blank = 30 s, 0 = don't wait.</label>
+        play time in the full show: blank = the default 33 s (a longer song
+        gets cut off — type its real length!), 0 = don't wait.</label>
       <div id="shortlist"><span class="empty">Connect to Cooper to load the song library.</span></div>
       <div class="row" style="margin-top:8px">
         <button class="secondary" id="slAll">Tick all</button>
@@ -607,7 +608,7 @@
       "✨ new dance songs" banner appears — press <b>Review</b>, tick the ones
       you want, then <b>Mark NEW as seen</b> to clear the alert everywhere.
       The <b>seconds box</b> next to each song sets how long the full show
-      waits while that dance plays: blank = the default 30 seconds, a number
+      waits while that dance plays: blank = the default 33 seconds, a number
       = that many seconds, and <b>0 = don't wait at all</b> (the show moves
       straight on). Play times are shared by all devices, like the
       shortlist.</p>
@@ -716,7 +717,7 @@
 
   // Bumped on every change, in lockstep with SERVER_VERSION in
   // cooper_panel_server.py. Shown top-right; amber = page and API differ.
-  const PANEL_VERSION = "2026.09.13-12";
+  const PANEL_VERSION = "2026.09.13-13";
   $("verChip").textContent = "v" + PANEL_VERSION;
 
   function status(msg, cls = "") {
@@ -1174,14 +1175,20 @@
     const opt = [...$("dances").options].find(o => o.value === showDance && o.value);
     const robotName = activeRobot === "secondary" ? "secondary robot" : "primary robot";
     $("danceRobotName").textContent = `${robotName} (${activeAddr()})`;
+    // Per-song play time: the full show waits this long during the dance.
+    const t = showDance != null ? danceTimes[showDance] : null;
+    const playsFor = t != null && t !== "" ? `plays ${t} s`
+      : "plays the DEFAULT 33 s — a longer song gets cut off; type its " +
+        "length in the seconds box in ⚙ Settings → shortlist";
     $("danceInfo").textContent = "Show dance: " +
-      (showDance && opt ? `${opt.textContent} · on the ${robotName}`
+      (showDance && opt ? `${opt.textContent} · ${playsFor} · on the ${robotName}`
         : showDance ? showDance.slice(-16) + " (not in this robot's library!)"
         : `— none set on the ${robotName} (pick one in ⚙ Settings)`);
     const info = $("danceIdInfo");
     if (showDance && opt) {
-      info.textContent = `✓ Saved on the ${robotName} · LinkCraft ID: ${showDance}`;
-      info.className = "hint ok";
+      info.textContent = `✓ Saved on the ${robotName} · ${playsFor} · ` +
+        `LinkCraft ID: ${showDance}`;
+      info.className = t != null && t !== "" ? "hint ok" : "hint warn";
     } else if (showDance) {
       info.textContent = `⚠ The saved ID is not in this robot's library — it ` +
         `belongs to the other robot. Pick this robot's own song above. ` +
@@ -1271,19 +1278,20 @@
         pill.textContent = "NEW";
         label.appendChild(pill);
       }
-      // Per-song play time: blank = show default (30 s), 0 = don't wait.
+      // Per-song play time: blank = show default (33 s), 0 = don't wait.
       const t = document.createElement("input");
       t.type = "number";
       t.className = "songTime";
       t.min = 0; t.max = 600; t.step = 1;
-      t.placeholder = "30";
-      t.title = "Play time in seconds — blank = default 30, 0 = don't wait";
+      t.placeholder = "33";
+      t.title = "Play time in seconds — blank = default 33, 0 = don't wait";
       if (danceTimes[d.key] != null) t.value = danceTimes[d.key];
       t.addEventListener("click", e => e.preventDefault());
       t.addEventListener("change", () => {
         if (t.value === "") delete danceTimes[d.key];
         else danceTimes[d.key] = Math.min(600, Math.max(0, Number(t.value) || 0));
         saveShortlist();
+        updateDanceInfo();  // the play-time note follows this box live
       });
       label.appendChild(t);
       const secs = document.createElement("span");

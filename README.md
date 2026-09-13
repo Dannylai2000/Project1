@@ -78,7 +78,7 @@ Features:
   each keeps its own shortlist/play-time config.
 - **Per-dance play time** — the seconds box beside each song in the
   shortlist sets how long the full show waits during that dance
-  (blank = 30 s default, 0 = don't wait). Stored on the robot
+  (blank = 33 s default, 0 = don't wait). Stored on the robot
   (`dance_times` in `cooper_panel_config.json`), shared by all devices.
 - **Audio controls** — Microphone On / Off radios (mic mute via
   `SetMute`), Speaker On / Muted radios, and a **volume slider** (0–100,
