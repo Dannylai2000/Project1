@@ -67,7 +67,7 @@ LOGGER = logging.getLogger("cooper_panel")
 # Bumped on every change, in lockstep with PANEL_VERSION in
 # cooper_control_panel.html. The panel shows both and flags a mismatch,
 # so a half-deployed update is visible at a glance.
-SERVER_VERSION = "2026.09.13-3"
+SERVER_VERSION = "2026.09.13-4"
 
 # For the health report's uptime figure.
 SERVER_STARTED = time.time()

@@ -681,7 +681,7 @@
 
   // Bumped on every change, in lockstep with SERVER_VERSION in
   // cooper_panel_server.py. Shown top-right; amber = page and API differ.
-  const PANEL_VERSION = "2026.09.13-3";
+  const PANEL_VERSION = "2026.09.13-4";
   $("verChip").textContent = "v" + PANEL_VERSION;
 
   function status(msg, cls = "") {
@@ -1506,19 +1506,23 @@
     } else {
       diagP(`⚠️ <b>${esc(host)} answered instantly, but nothing is listening on ` +
         `port ${esc(port)}</b> (rejected in ${Math.round(failMs)} ms).`);
-      diagP("Cooper is on the network but the <b>API socket is not armed</b>. " +
-        "Usual cause: Cooper was <b>rebooted</b> and its user services don't " +
-        "start until someone logs in (lingering not enabled). The Restart " +
-        "server button cannot fix this — it needs one SSH login. " +
-        `SSH to Cooper (<code>ssh agi@${esc(host)}</code>) and paste:`);
-      box.appendChild(cmdBlock(FIX_CMDS));
-      diagP("Then reload this page — the bar should turn green. To survive " +
-        "future reboots without logging in, have an admin run once:");
-      box.appendChild(cmdBlock("sudo loginctl enable-linger agi"));
-      diagP('<span class="det">No admin on Cooper (sudo refused)? Switch to ' +
-        "cron mode instead — it needs no login and no admin:</span>");
+      diagP("Cooper is on the network but the <b>API is not running</b>. The " +
+        "Restart server button cannot fix this — it needs one SSH login " +
+        `(<code>ssh agi@${esc(host)}</code>). The fix depends on how the API ` +
+        "was installed:");
+      diagP("<b>Cron mode</b> (installed with <code>--cron</code> — Cooper's " +
+        "current setup): re-running the installer fixes everything — it " +
+        "rewrites the cron entries, including the every-minute watchdog, " +
+        "and starts the API immediately:");
       box.appendChild(cmdBlock(
         "cd ~/cooper && ./deploy/install_cooper_service_nosudo.sh --pin <PIN> --cron"));
+      diagP("<b>Systemd on-demand mode</b> (the default install): re-arm the " +
+        "socket:");
+      box.appendChild(cmdBlock(FIX_CMDS));
+      diagP("Then reload this page — the bar should turn green. In systemd " +
+        "mode, to survive reboots without logging in, have an admin run " +
+        "once: <code>sudo loginctl enable-linger agi</code> (cron mode " +
+        "needs no admin at all).");
     }
     diagP('<span class="det">Note: when the socket IS armed, just opening this ' +
       "page starts the API by itself — so OFFLINE nearly always means one of " +

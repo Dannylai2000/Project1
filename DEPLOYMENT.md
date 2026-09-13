@@ -55,10 +55,13 @@ tries to enable it and prints the one admin command
 (`sudo loginctl enable-linger <user>`) if it can't; robots that
 auto-login their user work without it. **If `agi` has no sudo rights and
 no admin is available** (the command answers "not allowed to execute"),
-use `--cron` instead: a cron @reboot entry runs at every boot with no
-login and no admin needed (always-on with auto-restart, log in
-`~/cooper-panel.log`); the installer disables the systemd units first so
-the two don't fight over the port. The same cron fallback is used
+use `--cron` instead: cron entries run with no login and no admin needed
+(always-on with auto-restart, log in `~/cooper-panel.log`); the
+installer disables the systemd units first so the two don't fight over
+the port. Cron mode installs **two entries**: `@reboot` (start at boot)
+and an **every-minute watchdog** that revives the API within 60 s if it
+is ever not running — this also covers systems that kill a user's
+background processes at logout. The same cron fallback is used
 automatically where user systemd is unavailable. For a quick one-off
 start with no install at all:
 
@@ -98,6 +101,18 @@ diagnosis by hand: `python3 x2_showroom_demo.py --no-mute` — if that
 show has sound, the mute is what silences the audio.
 
 ### Restarting the API after an update
+
+**Cron mode** (Cooper's current setup — `systemctl` no longer manages it;
+"Unit not loaded" from systemctl is normal here):
+
+```bash
+pkill -f cooper_panel_server.py    # wrapper restarts it within 5 s
+```
+
+If the API is fully down, the every-minute watchdog revives it by
+itself; or re-run the installer with `--cron` to fix everything at once.
+
+**Systemd on-demand mode:**
 
 ```bash
 systemctl --user stop cooper-panel.service && systemctl --user restart cooper-panel.socket
