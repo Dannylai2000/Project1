@@ -330,27 +330,11 @@
       <div class="hint" id="danceIdInfo" style="word-break:break-all">—</div>
     </div>
     <div class="field">
-      <label>Custom actions — label plus motion / area ids from the
-        AimDK preset-motion table (shared by all devices)</label>
-      <div class="row">
-        <input type="text" id="ca1Label" placeholder="Button 1 label">
-        <input type="number" id="ca1Motion" min="0" max="9999" title="Motion id">
-        <input type="number" id="ca1Area" min="0" max="99" title="Area id">
-      </div>
-      <div class="row">
-        <input type="text" id="ca2Label" placeholder="Button 2 label">
-        <input type="number" id="ca2Motion" min="0" max="9999" title="Motion id">
-        <input type="number" id="ca2Area" min="0" max="99" title="Area id">
-      </div>
-      <div class="row" style="margin-top:8px">
-        <button class="secondary" id="caSave">Save custom buttons</button>
-      </div>
-    </div>
-    <div class="field">
       <label>Dance song shortlist — ticked songs appear in the dance list
         (none ticked = show every song). The seconds box sets each song's
-        play time in the full show: blank = the default 33 s (a longer song
-        gets cut off — type its real length!), 0 = don't wait.</label>
+        play time in the full show: <b>999 = play the full song</b>,
+        blank = the measured song length (or 33 s when unknown),
+        0 = don't wait.</label>
       <div id="shortlist"><span class="empty">Connect to Cooper to load the song library.</span></div>
       <div class="row" style="margin-top:8px">
         <button class="secondary" id="slAll">Tick all</button>
@@ -545,12 +529,9 @@
       <p>Pick a gesture from the dropdown and press <b>▶ Execute</b> —
       Cooper performs it immediately. Built in: 🤝 Shake hand, 🫶 Heart
       sign (both hands), 👋 Right-hand goodbye, 🖐️ Left-hand wave, and
-      😘 Blow kiss, plus two <b>⭐ custom entries</b> (out of the box:
-      Right-hand wave and Both-hands heart) whose label and motion/area ids
-      are editable in ⚙ Settings → "Custom actions" — changes apply to every
-      device. Gestures move the robot only — no speech, and the microphone
-      is not affected. Execute is disabled while a full show is running so
-      gestures cannot interrupt the performance.</p>
+      😘 Blow kiss. Gestures move the robot only — no speech, and the
+      microphone is not affected. Execute is disabled while a full show is
+      running so gestures cannot interrupt the performance.</p>
 
       <h3>Performance</h3>
       <ul>
@@ -618,9 +599,10 @@
       "✨ new dance songs" banner appears — press <b>Review</b>, tick the ones
       you want, then <b>Mark NEW as seen</b> to clear the alert everywhere.
       The <b>seconds box</b> next to each song sets how long the full show
-      waits while that dance plays: blank = the default 33 seconds, a number
-      = that many seconds, and <b>0 = don't wait at all</b> (the show moves
-      straight on). Play times are shared by all devices, like the
+      waits while that dance plays: <b>999 = play the full song</b>, blank =
+      the measured song length (33 seconds when it can't be measured), a
+      number = that many seconds, and <b>0 = don't wait at all</b> (the show
+      moves straight on). Play times are shared by all devices, like the
       shortlist.</p>
 
       <h3>Performance diagnostics (in ⚙ Settings)</h3>
@@ -727,7 +709,7 @@
 
   // Bumped on every change, in lockstep with SERVER_VERSION in
   // cooper_panel_server.py. Shown top-right; amber = page and API differ.
-  const PANEL_VERSION = "2026.09.13-17";
+  const PANEL_VERSION = "2026.09.13-18";
   $("verChip").textContent = "v" + PANEL_VERSION;
 
   function status(msg, cls = "") {
@@ -1270,16 +1252,19 @@
     const opt = [...$("dances").options].find(o => o.value === showDance && o.value);
     const robotName = activeRobot === "secondary" ? "secondary robot" : "primary robot";
     $("danceRobotName").textContent = `${robotName} (${activeAddr()})`;
-    // Per-song play time: seconds box → LinkCraft-reported duration
-    // (full song, no setup) → the script's 33 s default.
+    // Per-song play time: 999 or blank = the full song (measured length);
+    // a number = that many seconds; unknown length falls back to 33 s.
     const t = showDance != null ? danceTimes[showDance] : null;
     const meta = allDances.find(d => d.key === showDance);
     const dur = meta && meta.duration ? Math.round(meta.duration) : null;
-    const timeSet = t != null && t !== "";
+    const fullReq = t === 999;
+    const timeSet = t != null && t !== "" && !fullReq;
     const playsFor = timeSet ? `plays ${t} s`
-      : dur ? `plays the full song (~${dur} s, reported by LinkCraft)`
+      : dur ? `plays the full song (~${dur} s)`
+      : fullReq ? "full song requested (999) but the song length could not " +
+        "be measured — type its real length in the seconds box instead"
       : "plays the DEFAULT 33 s — a longer song gets cut off; type its " +
-        "length in the seconds box in ⚙ Settings → shortlist";
+        "length (or 999 for the full song) in ⚙ Settings → shortlist";
     $("danceInfo").textContent = "Show dance: " +
       (showDance && opt ? `${opt.textContent} · ${playsFor} · on the ${robotName}`
         : showDance ? showDance.slice(-16) + " (not in this robot's library!)"
@@ -1382,17 +1367,17 @@
       const t = document.createElement("input");
       t.type = "number";
       t.className = "songTime";
-      t.min = 0; t.max = 600; t.step = 1;
+      t.min = 0; t.max = 999; t.step = 1;
       t.placeholder = d.duration ? String(Math.round(d.duration)) : "33";
-      t.title = d.duration
-        ? `Play time in seconds — blank = the full song (~${Math.round(d.duration)} s ` +
-          "reported by LinkCraft), 0 = don't wait"
-        : "Play time in seconds — blank = default 33, 0 = don't wait";
+      t.title = "Play time in seconds — 999 = play the FULL SONG, " +
+        (d.duration
+          ? `blank = the measured song length (~${Math.round(d.duration)} s), `
+          : "blank = default 33 s, ") + "0 = don't wait";
       if (danceTimes[d.key] != null) t.value = danceTimes[d.key];
       t.addEventListener("click", e => e.preventDefault());
       t.addEventListener("change", () => {
         if (t.value === "") delete danceTimes[d.key];
-        else danceTimes[d.key] = Math.min(600, Math.max(0, Number(t.value) || 0));
+        else danceTimes[d.key] = Math.min(999, Math.max(0, Number(t.value) || 0));
         saveShortlist();
         updateDanceInfo();  // the play-time note follows this box live
       });
@@ -1422,14 +1407,6 @@
   async function loadActions() {
     try {
       const { actions } = await api("/api/actions");
-      // Fill the custom-action editor in settings from the shared config.
-      actions.filter(a => a.custom).forEach((a, i) => {
-        const n = i + 1;
-        if (!$(`ca${n}Label`)) return;
-        $(`ca${n}Label`).value = a.label;
-        $(`ca${n}Motion`).value = a.motion;
-        $(`ca${n}Area`).value = a.area;
-      });
       const sel = $("actionSel");
       const previous = sel.value;
       sel.innerHTML = "";
@@ -1565,28 +1542,6 @@
     setAudio("/api/volume", { level },
       "Volume", level === 0 ? "Volume 0 — speaker muted." : `Volume set to ${level}.`);
   });
-  $("caSave").addEventListener("click", async () => {
-    $("caSave").disabled = true;
-    try {
-      await api("/api/custom_actions", {
-        method: "POST",
-        body: JSON.stringify({
-          actions: [1, 2].map(n => ({
-            label: $(`ca${n}Label`).value.trim(),
-            motion: Number($(`ca${n}Motion`).value),
-            area: Number($(`ca${n}Area`).value),
-          })),
-        }),
-      });
-      status("Custom buttons saved for all devices.", "ok");
-      await loadActions();
-    } catch (e) {
-      status(`Saving custom buttons failed: ${e.message}`, "err");
-    } finally {
-      $("caSave").disabled = false;
-    }
-  });
-
   $("dances").addEventListener("change", async () => {
     const previous = showDance;
     showDance = $("dances").value;

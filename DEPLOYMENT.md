@@ -186,7 +186,7 @@ panel device, enter the backup robot's IP in ⚙ Settings →
 red, press **🤖 Use backup robot** on the bar (or use the Active robot
 selector) to carry on with the other robot.
 
-Note: the shortlist, play times, show dance, and custom actions are
+Note: the shortlist, play times, show dance, and message groups are
 stored on each robot, so configure them once per robot.
 
 ## B. optimus — the webserver hosting the page

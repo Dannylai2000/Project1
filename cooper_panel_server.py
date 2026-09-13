@@ -69,7 +69,7 @@ LOGGER = logging.getLogger("cooper_panel")
 # Bumped on every change, in lockstep with PANEL_VERSION in
 # cooper_control_panel.html. The panel shows both and flags a mismatch,
 # so a half-deployed update is visible at a glance.
-SERVER_VERSION = "2026.09.13-17"
+SERVER_VERSION = "2026.09.13-18"
 
 # For the health report's uptime figure.
 SERVER_STARTED = time.time()
@@ -975,59 +975,8 @@ class PanelConfig:
         LOGGER.info("Shortlist saved: %d song(s)", len(cleaned))
         return cleaned
 
-    MAX_DANCE_TIME_S = 600.0
-
-    # Two user-customizable gesture buttons (label + preset motion/area ids).
-    DEFAULT_CUSTOM_ACTIONS = [
-        {"label": "Right-hand wave", "motion": 1002, "area": 2},
-        {"label": "Both-hands heart", "motion": 1007, "area": 3},
-    ]
-
-    def get_custom_actions(self) -> list[dict]:
-        with self._lock:
-            try:
-                data = json.loads(self._path.read_text())
-            except (OSError, json.JSONDecodeError):
-                data = {}
-        stored = data.get("custom_actions")
-        out = []
-        for i, default in enumerate(self.DEFAULT_CUSTOM_ACTIONS):
-            entry = dict(default)
-            if isinstance(stored, list) and i < len(stored) and isinstance(stored[i], dict):
-                with suppress(TypeError, ValueError):
-                    entry = {
-                        "label": str(stored[i].get("label") or default["label"])[:40],
-                        "motion": int(stored[i].get("motion", default["motion"])),
-                        "area": int(stored[i].get("area", default["area"])),
-                    }
-            out.append(entry)
-        return out
-
-    def set_custom_actions(self, actions) -> list[dict]:
-        if not isinstance(actions, list) or len(actions) != len(self.DEFAULT_CUSTOM_ACTIONS):
-            raise ValueError(f"expected a list of {len(self.DEFAULT_CUSTOM_ACTIONS)} actions")
-        cleaned = []
-        for i, a in enumerate(actions):
-            if not isinstance(a, dict):
-                raise ValueError("each action must be an object")
-            default = self.DEFAULT_CUSTOM_ACTIONS[i]
-            label = str(a.get("label") or default["label"]).strip()[:40] or default["label"]
-            try:
-                motion = max(0, min(9999, int(a.get("motion", default["motion"]))))
-                area = max(0, min(99, int(a.get("area", default["area"]))))
-            except (TypeError, ValueError):
-                raise ValueError("motion and area must be numbers")
-            cleaned.append({"label": label, "motion": motion, "area": area})
-        with self._lock:
-            try:
-                data = json.loads(self._path.read_text())
-            except (OSError, json.JSONDecodeError):
-                data = {}
-            data["custom_actions"] = cleaned
-            self._path.write_text(json.dumps(data, indent=2))
-        LOGGER.info("Custom action buttons saved: %s",
-                    ", ".join(a["label"] for a in cleaned))
-        return cleaned
+    # 999 in a seconds box is the "play the full song" sentinel.
+    MAX_DANCE_TIME_S = 999.0
 
     def get_dance_times(self) -> dict:
         """Per-song play time in seconds ({} entries mean the show default)."""
@@ -1491,10 +1440,6 @@ def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str,
                     {"key": k, "label": a["label"], "emoji": a["emoji"]}
                     for k, a in ACTIONS.items()
                 ]
-                for i, a in enumerate(config.get_custom_actions(), start=1):
-                    actions.append({"key": f"custom{i}", "label": a["label"],
-                                    "emoji": "⭐", "custom": True,
-                                    "motion": a["motion"], "area": a["area"]})
                 return self._send_json({"ok": True, "actions": actions})
             return self._send_json({"ok": False, "error": "not found"}, 404)
 
@@ -1561,10 +1506,6 @@ def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str,
                     return self._send_json({"ok": True, "volume": node.volume_state,
                                             "speaker": node.speaker_state, "timing": timing})
 
-                if self.path == "/api/custom_actions":
-                    saved = config.set_custom_actions(body.get("actions"))
-                    return self._send_json({"ok": True, "actions": saved})
-
                 if self.path == "/api/shortlist":
                     result = {}
                     if "shortlist" in body:
@@ -1592,12 +1533,6 @@ def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str,
                 if self.path == "/api/action":
                     key = str(body.get("action") or "")
                     action = ACTIONS.get(key)
-                    if action is None and key.startswith("custom"):
-                        customs = config.get_custom_actions()
-                        with suppress(TypeError, ValueError, IndexError):
-                            idx = int(key[6:]) - 1
-                            if 0 <= idx < len(customs):
-                                action = customs[idx]
                     if action is None:
                         return self._send_json({"ok": False, "error": "unknown action"}, 400)
                     if shows.running():
@@ -1637,11 +1572,12 @@ def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str,
                                       "in this robot's LinkCraft library — it "
                                       "belongs to the other robot. Pick this "
                                       "robot's own song in ⚙ Settings"}, 400)
-                    # Per-song play time: the configured seconds box wins;
-                    # otherwise the duration LinkCraft reports for the song
-                    # (full-song play with no setup); otherwise the script's
-                    # 33 s default.
+                    # Per-song play time: 999 = "play the full song"
+                    # sentinel; a number = that many seconds; blank = the
+                    # measured song length; nothing measurable = 33 s default.
                     dance_duration = config.get_dance_times().get(dance_key)
+                    if dance_duration is not None and int(dance_duration) == 999:
+                        dance_duration = None
                     if dance_duration is None:
                         dance_duration = library.duration_for(dance_key)
                     # Guarantee the show is audible — unless the speaker was

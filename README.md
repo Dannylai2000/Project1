@@ -56,9 +56,7 @@ Features:
   selected dance.
 - **Actions** — a dropdown of gestures plus a **▶ Execute** button:
   shake hand, heart sign (both hands), right-hand goodbye, left-hand
-  wave, blow kiss, and two **⭐ custom entries** (defaults: Right-hand
-  wave 1002/2 and Both-hands heart 1007/3) relabelable/repointable from
-  ⚙ Settings (shared config `custom_actions`, PIN to change). Each
+  wave, and blow kiss. Each
   execution runs the standalone **`x2_action.py`** program (also usable
   by hand: `python3 x2_action.py --motion 1002 --area 2`). Blocked while
   a show runs. IDs follow the AimDK preset-motion table (1001 raise,
@@ -78,7 +76,8 @@ Features:
   each keeps its own shortlist/play-time config.
 - **Per-dance play time** — the seconds box beside each song in the
   shortlist sets how long the full show waits during that dance
-  (blank = 33 s default, 0 = don't wait). Stored on the robot
+  (**999 = play the full song**, blank = the measured song length or
+  33 s when unknown, 0 = don't wait). Stored on the robot
   (`dance_times` in `cooper_panel_config.json`), shared by all devices.
 - **Audio controls** — Microphone On / Off radios (mic mute via
   `SetMute`), Speaker On / Muted radios, and a **volume slider** (0–100,
