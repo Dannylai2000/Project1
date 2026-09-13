@@ -558,8 +558,8 @@
           MIC. The mode is shared by all devices; if you forget to gear
           up, the show still switches MICs automatically as before.</li>
         <li><b>▶ Run full show</b> — the complete sequence: wave + welcome,
-          introduction, dance, thank-you + heart, goodbye. Buttons lock
-          while a show is running.</li>
+          introduction, dance, thank-you, goodbye, both-hands heart as the
+          closing pose. Buttons lock while a show is running.</li>
         <li><b>Show dance</b> — the song the show (and Play dance only)
           uses is chosen in ⚙ Settings → "Show dance"; the line under the
           buttons shows the current choice. It is <b>stored on the
@@ -716,7 +716,7 @@
 
   // Bumped on every change, in lockstep with SERVER_VERSION in
   // cooper_panel_server.py. Shown top-right; amber = page and API differ.
-  const PANEL_VERSION = "2026.09.13-11";
+  const PANEL_VERSION = "2026.09.13-12";
   $("verChip").textContent = "v" + PANEL_VERSION;
 
   function status(msg, cls = "") {
