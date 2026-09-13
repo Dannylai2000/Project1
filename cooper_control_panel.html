@@ -558,8 +558,8 @@
           MIC. The mode is shared by all devices; if you forget to gear
           up, the show still switches MICs automatically as before.</li>
         <li><b>▶ Run full show</b> — the complete sequence: wave + welcome,
-          introduction, dance, bow, clap, thank-you + heart, goodbye + blow
-          kiss, goodbye wave. Buttons lock while a show is running.</li>
+          introduction, dance, thank-you + heart, goodbye. Buttons lock
+          while a show is running.</li>
         <li><b>Show dance</b> — the song the show (and Play dance only)
           uses is chosen in ⚙ Settings → "Show dance"; the line under the
           buttons shows the current choice. It is <b>stored on the
@@ -590,7 +590,7 @@
           Cooper picks by its own clock at show time (morning before 12:00).
           Fill only one to use it all day.</li>
         <li><b>Introduction</b> — spoken after the welcome, before the dance.</li>
-        <li><b>Goodbye</b> — spoken near the end, with the blow kiss.</li>
+        <li><b>Goodbye</b> — spoken at the end of the show.</li>
         <li><b>Blank fields = Cooper's built-in messages</b> — the texts kept
           in the show script (<code>x2_showroom_demo.py</code>) on the robot,
           which is the single source of truth. A filled field overrides only
@@ -716,7 +716,7 @@
 
   // Bumped on every change, in lockstep with SERVER_VERSION in
   // cooper_panel_server.py. Shown top-right; amber = page and API differ.
-  const PANEL_VERSION = "2026.09.13-10";
+  const PANEL_VERSION = "2026.09.13-11";
   $("verChip").textContent = "v" + PANEL_VERSION;
 
   function status(msg, cls = "") {
