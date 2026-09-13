@@ -67,7 +67,10 @@ LOGGER = logging.getLogger("cooper_panel")
 # Bumped on every change, in lockstep with PANEL_VERSION in
 # cooper_control_panel.html. The panel shows both and flags a mismatch,
 # so a half-deployed update is visible at a glance.
-SERVER_VERSION = "2026.09.13-1"
+SERVER_VERSION = "2026.09.13-2"
+
+# For the health report's uptime figure.
+SERVER_STARTED = time.time()
 
 DEFAULT_GET_RESOURCES_SVC  = "/aimdk_5Fmsgs/srv/GetRobotResources"
 DEFAULT_EXECUTE_ACTION_SVC = "/aimdk_5Fmsgs/srv/ExecuteActionResource"
@@ -864,6 +867,113 @@ def resolve_messages(body: dict) -> tuple[str | None, str | None, str | None]:
     return sub(greeting), sub(intro), sub(goodbye)
 
 
+def health_report(node: CooperPanelNode, config: PanelConfig, pin: str) -> list[dict]:
+    """Self-diagnosis behind GET /api/health (the panel's 🩺 Diagnose button).
+
+    Each check: {id, label, ok, detail, fix} with ok True (pass),
+    False (problem) or None (warning / informational).
+    """
+    checks: list[dict] = []
+
+    def add(cid: str, label: str, ok, detail: str = "", fix: str = "") -> None:
+        checks.append({"id": cid, "label": label, "ok": ok,
+                       "detail": detail, "fix": fix})
+
+    on_demand = int(os.environ.get("LISTEN_FDS", "0")) >= 1
+    up_min = int((time.time() - SERVER_STARTED) // 60)
+    add("api", "Control API process", True,
+        f"v{SERVER_VERSION} · up {up_min} min · " +
+        ("started on demand (systemd socket)" if on_demand
+         else "running standalone (manual start or cron)"))
+
+    # Will the API arm itself again after Cooper reboots?
+    user = ""
+    with suppress(Exception):
+        import getpass
+        user = getpass.getuser()
+    linger = bool(user) and (Path("/var/lib/systemd/linger") / user).exists()
+    has_cron = False
+    with suppress(Exception):
+        out = subprocess.run(["crontab", "-l"], capture_output=True,
+                             text=True, timeout=5)
+        has_cron = "run_cooper_panel.sh" in (out.stdout or "")
+    if linger:
+        add("boot", "Start after reboot", True,
+            "lingering is enabled — the API socket arms at every boot")
+    elif has_cron:
+        add("boot", "Start after reboot", True,
+            "cron @reboot entry found — the API starts at every boot")
+    else:
+        add("boot", "Start after reboot", None,
+            f"the API only arms when {user or 'the robot user'} logs in on "
+            "Cooper — after a reboot the panel stays offline until then "
+            "(fine if Cooper auto-logs-in at boot)",
+            "one-time admin command on Cooper: "
+            f"sudo loginctl enable-linger {user or '<user>'}")
+
+    # AimDK ROS services the panel depends on.
+    for cid, label, client in (
+            ("svc_mute",    "Microphone service (SetMute)",         node._set_mute),
+            ("svc_volume",  "Speaker service (SetVolume)",          node._set_volume),
+            ("svc_library", "Dance library (GetRobotResources)",    node._get_resources),
+            ("svc_dance",   "Dance runner (ExecuteActionResource)", node._exec_action)):
+        if client is None:
+            add(cid, label, False, "service type missing in this build",
+                "rebuild the aimdk workspace (colcon build) and restart the API")
+            continue
+        ready = False
+        with suppress(Exception):
+            ready = bool(client.service_is_ready())
+        add(cid, label, ready, "responding" if ready else "not available right now",
+            "" if ready else "wait for the robot software to finish booting; "
+            "if it stays red, rebuild the aimdk workspace (colcon build) and "
+            "restart the API")
+
+    # Mic-source switch used by the show-audio workaround.
+    svc = node._mic_source_service
+    if svc:
+        present = False
+        with suppress(Exception):
+            present = any(n == svc
+                          for n, _ in self_service_names(node))
+        add("svc_mic_source", "Mic-source switch (show audio)",
+            True if present else None,
+            "responding" if present else f"{svc} not found",
+            "" if present else "the show falls back to plain mute — the "
+            "performance may have no sound")
+
+    # Files the panel needs on disk.
+    missing = [p.name for p in (SHOW_SCRIPT, ACTION_SCRIPT) if not p.exists()]
+    add("files", "Show & gesture programs", not missing,
+        "x2_showroom_demo.py and x2_action.py present" if not missing
+        else "missing: " + ", ".join(missing),
+        "" if not missing else "run git pull in ~/cooper on Cooper")
+
+    writable = os.access(CONFIG_FILE.parent, os.W_OK)
+    add("config", "Shared settings storage", True if writable else None,
+        "writable" if writable
+        else f"{CONFIG_FILE.parent} is not writable — shortlist and "
+             "show-dance changes will not save")
+
+    sd = config.get_show_dance()
+    add("show_dance", "Show dance selected", True if sd else None,
+        sd if sd else "no dance chosen yet",
+        "" if sd else "pick one in ⚙ Settings → song list")
+
+    add("pin", "PIN protection", True if pin else None,
+        "enabled" if pin else "DISABLED — anyone on the network can control Cooper",
+        "" if pin else "reinstall the service with --pin <code>")
+
+    return checks
+
+
+def self_service_names(node):
+    """The ROS service graph as (name, types) pairs; [] on any failure."""
+    with suppress(Exception):
+        return node.get_service_names_and_types()
+    return []
+
+
 def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str,
                  config: PanelConfig, library: LibraryWatcher,
                  last_activity: list):
@@ -933,6 +1043,13 @@ def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str,
                     "new_songs": new_songs,
                     "show_timing": shows.show_timing(),
                 })
+            if self.path == "/api/health":
+                try:
+                    return self._send_json({"ok": True, "version": SERVER_VERSION,
+                                            "checks": health_report(node, config, pin)})
+                except Exception as exc:
+                    LOGGER.exception("health check failed")
+                    return self._send_json({"ok": False, "error": str(exc)}, 502)
             if self.path == "/api/dances":
                 try:
                     return self._send_json({"ok": True, "dances": library.refresh()})

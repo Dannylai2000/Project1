@@ -90,6 +90,12 @@ Features:
 - **PIN protection** — all control actions (listening, dance, show)
   require a PIN when the server is started with one. The page asks for it
   in ⚙ settings and remembers it.
+- **🩺 Diagnose button** — one tap on the server status bar. API online:
+  runs a health check on Cooper itself (AimDK services, start-after-reboot
+  persistence, program files, PIN) with a plain-language fix for anything
+  amber/red. API offline: tells apart "Cooper unreachable (power/Wi-Fi/IP)"
+  from "Cooper up but the API socket not armed (reboot without lingering)"
+  and shows the exact SSH commands to fix it, with a copy button.
 - **Live status** — the page polls Cooper every 3 seconds: connection dot,
   listening state, and show-in-progress (buttons lock while a show runs).
   The server also mirrors the show's mic behaviour, so the listening
