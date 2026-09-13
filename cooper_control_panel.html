@@ -727,7 +727,7 @@
 
   // Bumped on every change, in lockstep with SERVER_VERSION in
   // cooper_panel_server.py. Shown top-right; amber = page and API differ.
-  const PANEL_VERSION = "2026.09.13-15";
+  const PANEL_VERSION = "2026.09.13-16";
   $("verChip").textContent = "v" + PANEL_VERSION;
 
   function status(msg, cls = "") {
@@ -1270,9 +1270,14 @@
     const opt = [...$("dances").options].find(o => o.value === showDance && o.value);
     const robotName = activeRobot === "secondary" ? "secondary robot" : "primary robot";
     $("danceRobotName").textContent = `${robotName} (${activeAddr()})`;
-    // Per-song play time: the full show waits this long during the dance.
+    // Per-song play time: seconds box → LinkCraft-reported duration
+    // (full song, no setup) → the script's 33 s default.
     const t = showDance != null ? danceTimes[showDance] : null;
-    const playsFor = t != null && t !== "" ? `plays ${t} s`
+    const meta = allDances.find(d => d.key === showDance);
+    const dur = meta && meta.duration ? Math.round(meta.duration) : null;
+    const timeSet = t != null && t !== "";
+    const playsFor = timeSet ? `plays ${t} s`
+      : dur ? `plays the full song (~${dur} s, reported by LinkCraft)`
       : "plays the DEFAULT 33 s — a longer song gets cut off; type its " +
         "length in the seconds box in ⚙ Settings → shortlist";
     $("danceInfo").textContent = "Show dance: " +
@@ -1283,7 +1288,7 @@
     if (showDance && opt) {
       info.textContent = `✓ Saved on the ${robotName} · ${playsFor} · ` +
         `LinkCraft ID: ${showDance}`;
-      info.className = t != null && t !== "" ? "hint ok" : "hint warn";
+      info.className = (timeSet || dur) ? "hint ok" : "hint warn";
     } else if (showDance) {
       info.textContent = `⚠ The saved ID is not in this robot's library — it ` +
         `belongs to the other robot. Pick this robot's own song above. ` +
@@ -1378,8 +1383,11 @@
       t.type = "number";
       t.className = "songTime";
       t.min = 0; t.max = 600; t.step = 1;
-      t.placeholder = "33";
-      t.title = "Play time in seconds — blank = default 33, 0 = don't wait";
+      t.placeholder = d.duration ? String(Math.round(d.duration)) : "33";
+      t.title = d.duration
+        ? `Play time in seconds — blank = the full song (~${Math.round(d.duration)} s ` +
+          "reported by LinkCraft), 0 = don't wait"
+        : "Play time in seconds — blank = default 33, 0 = don't wait";
       if (danceTimes[d.key] != null) t.value = danceTimes[d.key];
       t.addEventListener("click", e => e.preventDefault());
       t.addEventListener("change", () => {

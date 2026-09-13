@@ -69,7 +69,7 @@ LOGGER = logging.getLogger("cooper_panel")
 # Bumped on every change, in lockstep with PANEL_VERSION in
 # cooper_control_panel.html. The panel shows both and flags a mismatch,
 # so a half-deployed update is visible at a glance.
-SERVER_VERSION = "2026.09.13-15"
+SERVER_VERSION = "2026.09.13-16"
 
 # For the health report's uptime figure.
 SERVER_STARTED = time.time()
@@ -185,7 +185,7 @@ def resource_display_name(resource, key: str) -> str:
 
 
 def describe_message_fields(msg, depth: int = 1) -> dict:
-    """{field: value preview} for a ROS message, one nesting level deep."""
+    """{field: value preview} for a ROS message, `depth` nesting levels."""
     out = {}
     for field in _message_fields(msg):
         v = getattr(msg, field, None)
@@ -195,9 +195,83 @@ def describe_message_fields(msg, depth: int = 1) -> dict:
             out[field] = v[:120]
         elif isinstance(v, (bool, int, float)):
             out[field] = v
+        elif isinstance(v, (list, tuple)):
+            preview = []
+            for item in list(v)[:2]:
+                if _message_fields(item) and depth > 0:
+                    preview.append(describe_message_fields(item, depth - 1))
+                elif isinstance(item, str):
+                    preview.append(item[:80])
+                elif isinstance(item, (bool, int, float)):
+                    preview.append(item)
+                else:
+                    preview.append(type(item).__name__)
+            if len(v) > 2:
+                preview.append(f"… +{len(v) - 2} more")
+            out[field] = preview
         else:
             out[field] = type(v).__name__
     return out
+
+
+def _duration_from_value(fname: str, v) -> float | None:
+    """Seconds when a field name/value plausibly carries a song duration."""
+    if not isinstance(v, (int, float)) or isinstance(v, bool) or v <= 0:
+        return None
+    low = fname.lower()
+    if "stamp" in low or "date" in low or "time_out" in low:
+        return None
+    if not ("duration" in low or "play_time" in low or "playtime" in low
+            or low in ("length", "seconds", "secs", "time_length")):
+        return None
+    val = float(v)
+    if "ms" in low or "milli" in low or val > 1000:
+        val /= 1000.0
+    return val if 3.0 <= val <= 3600.0 else None
+
+
+def resource_duration_s(resource) -> float | None:
+    """Best-effort song duration (seconds) from a LinkCraft resource.
+
+    Searched on the resource, nested sub-messages, entries of list fields
+    (e.g. current_version.files), and JSON payloads in string fields.
+    None when this SDK build simply doesn't report one.
+    """
+    holders = [resource]
+    for field in _message_fields(resource):
+        v = getattr(resource, field, None)
+        if v is None:
+            continue
+        if _message_fields(v):
+            holders.append(v)
+            for f2 in _message_fields(v):
+                v2 = getattr(v, f2, None)
+                if isinstance(v2, (list, tuple)):
+                    holders += [x for x in list(v2)[:10] if _message_fields(x)]
+        elif isinstance(v, (list, tuple)):
+            holders += [x for x in list(v)[:10] if _message_fields(x)]
+    for holder in holders:
+        for field in _message_fields(holder):
+            d = _duration_from_value(field, getattr(holder, field, None))
+            if d is not None:
+                return round(d, 1)
+    for holder in holders:
+        for field in _message_fields(holder):
+            v = getattr(holder, field, None)
+            if isinstance(v, str) and v[:1] in "{[":
+                with suppress(Exception):
+                    queue = [json.loads(v)]
+                    while queue:
+                        item = queue.pop(0)
+                        if isinstance(item, dict):
+                            for k, vv in item.items():
+                                d = _duration_from_value(k, vv)
+                                if d is not None:
+                                    return round(d, 1)
+                            queue.extend(item.values())
+                        elif isinstance(item, list):
+                            queue.extend(item)
+    return None
 
 
 class CooperPanelNode(Node):
@@ -281,11 +355,12 @@ class CooperPanelNode(Node):
                     continue
                 self._resource_cache[key] = r
                 if not self._resource_fields_logged:
-                    # One-time field dump so the journal shows where this SDK
-                    # build keeps the human-readable LinkCraft name.
+                    # One-time field dump (two levels deep, list previews) so
+                    # the journal shows where this SDK build keeps the song
+                    # name and — if reported at all — the song duration.
                     self._resource_fields_logged = True
                     LOGGER.info("LinkCraft resource fields for %s: %s",
-                                key, describe_message_fields(r))
+                                key, describe_message_fields(r, depth=2))
                 # On this SDK build the LinkCraft song name (e.g. 太极) is
                 # current_version.name — confirmed from the journal dump.
                 # Fall back to the generic search on builds shaped otherwise.
@@ -297,7 +372,9 @@ class CooperPanelNode(Node):
                 version = ""
                 with suppress(Exception):
                     version = str(r.current_version.version)
-                dances.append({"key": key, "name": name or key, "version": version})
+                dances.append({"key": key, "name": name or key,
+                               "version": version,
+                               "duration": resource_duration_s(r)})
         return dances
 
     def start_dance(self, resource_key: str) -> dict:
@@ -972,6 +1049,14 @@ class LibraryWatcher:
         with self._lock:
             return len(self._dances), self._new_count
 
+    def duration_for(self, key: str) -> float | None:
+        """Cached song duration in seconds, when LinkCraft reports one."""
+        with self._lock:
+            for d in self._dances:
+                if d["key"] == key:
+                    return d.get("duration")
+        return None
+
     def mark_all_seen(self) -> int:
         """Acknowledge every currently known song; clears the NEW flags."""
         with self._lock:
@@ -1448,10 +1533,13 @@ def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str,
                                       "in this robot's LinkCraft library — it "
                                       "belongs to the other robot. Pick this "
                                       "robot's own song in ⚙ Settings"}, 400)
-                    # Per-song play time from the shared config (None = default).
-                    dance_duration = None
-                    if dance_key:
-                        dance_duration = config.get_dance_times().get(dance_key)
+                    # Per-song play time: the configured seconds box wins;
+                    # otherwise the duration LinkCraft reports for the song
+                    # (full-song play with no setup); otherwise the script's
+                    # 33 s default.
+                    dance_duration = config.get_dance_times().get(dance_key)
+                    if dance_duration is None:
+                        dance_duration = library.duration_for(dance_key)
                     # Guarantee the show is audible — unless the speaker was
                     # deliberately muted in the panel (silent rehearsal).
                     if node.speaker_state is False:

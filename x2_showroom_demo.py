@@ -96,6 +96,7 @@ DANCE_DURATION_S   = 33.0
 FINAL_MOTION_ID     = 1007
 FINAL_AREA_ID       = 3
 FINAL_MOTION_WAIT_S = 3.0   # hold the closing heart before the end steps
+STAND_SETTLE_S      = 8.0   # Stable Stand settle before a preset motion
 
 # ── Sequence texts ────────────────────────────────────────────────────────────
 GREETING_TEXT  = "Thank You Caden for remembering me! Hello everyone! It is wonderful to be here with you today."
@@ -609,7 +610,7 @@ class IntroSequenceNode(Node):
 
     # ── Stand default (required before every preset motion) ───────────────
 
-    def _stand_default(self) -> bool:
+    def _stand_default(self, settle_s: float = 8.0) -> bool:
         """Switch the robot to Stable Stand mode before a preset motion."""
         while not self._set_mc_action.wait_for_service(timeout_sec=1.0):
             if not rclpy.ok():
@@ -646,8 +647,12 @@ class IntroSequenceNode(Node):
             LOGGER.error("SetMcAction (STAND_DEFAULT) rejected: state=%s", state)
             return False
 
-        self.get_logger().info("STAND_DEFAULT accepted; waiting 8s to settle")
-        time.sleep(8.0)
+        if settle_s > 0:
+            self.get_logger().info(
+                f"STAND_DEFAULT accepted; waiting {settle_s:.0f}s to settle")
+            time.sleep(settle_s)
+        else:
+            self.get_logger().info("STAND_DEFAULT accepted (settle overlaps speech)")
         return True
 
     # ── Preset motion ──────────────────────────────────────────────────────
@@ -693,6 +698,10 @@ class IntroSequenceNode(Node):
         )
 
         if code == 0 or state in (CommonState.SUCCESS, CommonState.RUNNING):
+            if state not in (CommonState.SUCCESS, CommonState.RUNNING):
+                LOGGER.warning("Preset motion header accepted but state=%s "
+                               "task_id=%s — the motion may not have played "
+                               "(robot not in Stable Stand?)", state, task_id)
             if wait_s > 0:
                 LOGGER.info("Preset motion accepted; waiting %.1fs", wait_s)
                 time.sleep(wait_s)
@@ -742,6 +751,14 @@ class IntroSequenceNode(Node):
             self._play_emoji("dance")
             self._run_linkcraft_action(self._dance_key, self._dance_duration_s)
 
+            # After a LinkCraft dance the motion controller stays in dance
+            # mode and REJECTS preset motions (state=400) — Stable Stand is
+            # required first. Request it now and let its settle time overlap
+            # the thank-you/goodbye speeches instead of standing in silence.
+            self.get_logger().info("=== STEP 3b: BACK TO STABLE STAND ===")
+            stand_t0 = time.monotonic()
+            stand_ok = self._stand_default(settle_s=0.0)
+
             self.get_logger().info("=== STEP 4: THANK YOU ===")
             self._play_emoji("closing")
             self._speak(self._thank_you_text)
@@ -754,6 +771,12 @@ class IntroSequenceNode(Node):
 
             # Closing pose: the both-hands heart AFTER the goodbye, held so
             # the motion finishes before the end-of-show mic switching.
+            if stand_ok:
+                remaining = STAND_SETTLE_S - (time.monotonic() - stand_t0)
+                if remaining > 0:
+                    self.get_logger().info(
+                        f"Waiting {remaining:.1f}s more for Stable Stand")
+                    time.sleep(remaining)
             self.get_logger().info("=== STEP 6: BOTH-HANDS HEART ===")
             self._run_preset_motion(
                 FINAL_MOTION_ID, FINAL_AREA_ID, FINAL_MOTION_WAIT_S
