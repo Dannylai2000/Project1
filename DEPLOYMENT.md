@@ -104,6 +104,11 @@ Stopping only the socket leaves an already-running service alive
 too. If units ended up failed:
 `systemctl --user reset-failed cooper-panel.service cooper-panel.socket`.
 
+When the panel shows OFFLINE, press its **🩺 Diagnose** button first: it
+works out whether Cooper is unreachable (power/Wi-Fi/wrong IP) or up with
+the socket not armed (typical after a reboot without lingering), and
+shows these commands ready to copy.
+
 ### 3b. After every update: check the version tag
 
 The panel shows a version tag top-right (e.g. `v2026.09.12-1`), bumped

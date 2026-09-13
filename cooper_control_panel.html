@@ -75,23 +75,38 @@
                     background: rgba(255, 107, 107, .08); }
   #serverBar.down .dot { background: var(--bad); }
 
-  /* Help overlay */
-  #helpModal {
+  /* Help + Diagnostics overlays */
+  #helpModal, #diagModal {
     display: none; position: fixed; inset: 0; z-index: 50;
     background: rgba(0, 0, 0, .55); padding: 24px;
     justify-content: center; align-items: flex-start; overflow-y: auto;
   }
-  #helpModal.open { display: flex; }
-  #helpBox {
+  #helpModal.open, #diagModal.open { display: flex; }
+  #helpBox, #diagBox {
     background: var(--panel); border: 1px solid var(--edge); border-radius: 14px;
     max-width: 560px; width: 100%; max-height: 85vh; overflow-y: auto;
     padding: 20px 22px;
   }
-  #helpBox h2 { font-size: 18px; margin: 0; }
+  #helpBox h2, #diagBox h2 { font-size: 18px; margin: 0; }
   .helpHead { display: flex; justify-content: space-between; align-items: center;
               margin-bottom: 6px; }
-  #helpClose { background: none; border: 0; color: var(--dim); font-size: 20px;
-               cursor: pointer; padding: 4px 8px; }
+  #helpClose, #diagClose { background: none; border: 0; color: var(--dim);
+               font-size: 20px; cursor: pointer; padding: 4px 8px; }
+  #diagBox p { font-size: 14px; color: var(--text); margin: 8px 0; }
+  #diagBox code { background: #0d1116; border: 1px solid var(--edge);
+                  border-radius: 4px; padding: 0 5px; font-size: 13px; }
+  .checkRow { display: flex; gap: 10px; font-size: 14px; padding: 8px 0;
+              border-bottom: 1px solid var(--edge); align-items: flex-start; }
+  .checkRow:last-child { border-bottom: 0; }
+  .checkRow .ic { flex: none; }
+  .checkRow .lbl { font-weight: 650; }
+  .checkRow .det { color: var(--dim); }
+  .checkRow .fix, #diagBox .fix { color: var(--warn); }
+  #diagBox .det { color: var(--dim); }
+  .cmds { background: #0d1116; border: 1px solid var(--edge); border-radius: 8px;
+          padding: 10px 12px; font-family: ui-monospace, SFMono-Regular, Menlo,
+          monospace; font-size: 13px; white-space: pre-wrap;
+          word-break: break-all; margin: 8px 0 6px; }
   #helpBox h3 { font-size: 15px; margin: 18px 0 6px; color: var(--accent); }
   #helpBox p, #helpBox li { font-size: 14px; color: var(--text); margin: 6px 0; }
   #helpBox ul { padding-left: 20px; margin: 4px 0; }
@@ -263,6 +278,7 @@
     <span id="sbarText">Checking Cooper's web server…</span>
     <button id="sbarRetry" class="hbtn" style="display:none">🔄 Restart server</button>
     <button id="sbarSwitch" class="hbtn" style="display:none">🤖 Use backup robot</button>
+    <button id="sbarDiag" class="hbtn" title="Run a health check on Cooper — or, when offline, find out why">🩺 Diagnose</button>
   </div>
 
   <section id="settings">
@@ -451,7 +467,12 @@
       in ⚙ Settings — a typo there is the most common cause. While a panel
       is open, an on-demand API never stops itself; its idle timer only
       runs when no panel is connected anywhere.
-      At the far right, the small <b>version tag</b> (e.g. v2026.09.12-1)
+      <b>🩺 Diagnose</b> figures out problems for you: when the API is
+      online it runs a full health check on Cooper (robot services, start
+      after reboot, files, PIN); when offline it tells apart "Cooper is
+      unreachable" from "Cooper is up but the API socket is not armed" and
+      shows the exact commands to fix it, ready to copy.</p>
+      <p>At the far right, the small <b>version tag</b> (e.g. v2026.09.12-1)
       identifies this page's build; if it turns <b>amber</b> showing
       "page ≠ API", the webpage on optimus and the server on Cooper are on
       different versions — re-copy the page or update/restart the API so
@@ -608,6 +629,19 @@
     </div>
   </div>
 
+  <div id="diagModal">
+    <div id="diagBox">
+      <div class="helpHead">
+        <h2>🩺 Diagnostics</h2>
+        <button id="diagClose" title="Close">✕</button>
+      </div>
+      <div id="diagResults"></div>
+      <div class="row" style="margin-top:12px">
+        <button id="diagRerun" class="hbtn">🔄 Run again</button>
+      </div>
+    </div>
+  </div>
+
   <section id="diagCard" style="display:none">
     <h2>Performance diagnostics</h2>
 
@@ -647,7 +681,7 @@
 
   // Bumped on every change, in lockstep with SERVER_VERSION in
   // cooper_panel_server.py. Shown top-right; amber = page and API differ.
-  const PANEL_VERSION = "2026.09.13-1";
+  const PANEL_VERSION = "2026.09.13-2";
   $("verChip").textContent = "v" + PANEL_VERSION;
 
   function status(msg, cls = "") {
@@ -1398,6 +1432,124 @@
   $("helpClose").addEventListener("click", () => $("helpModal").classList.remove("open"));
   $("helpModal").addEventListener("click", e => {
     if (e.target === $("helpModal")) $("helpModal").classList.remove("open");
+  });
+
+  // ── 🩺 one-tap diagnostics ──────────────────────────────────────────────
+  const esc = t => { const s = document.createElement("span"); s.textContent = t; return s.innerHTML; };
+
+  // Copy that also works on plain http:// (no clipboard API there).
+  function copyText(text, btn) {
+    const done = ok => { btn.textContent = ok ? "✓ Copied" : "Copy failed — select the text";
+                         setTimeout(() => { btn.textContent = "📋 Copy"; }, 2000); };
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(text).then(() => done(true), () => done(false));
+    } else {
+      const ta = document.createElement("textarea");
+      ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+      document.body.appendChild(ta); ta.focus(); ta.select();
+      let ok = false; try { ok = document.execCommand("copy"); } catch (e) {}
+      ta.remove(); done(ok);
+    }
+  }
+
+  const FIX_CMDS = [
+    "systemctl --user reset-failed cooper-panel.service cooper-panel.socket",
+    "systemctl --user stop cooper-panel.service",
+    "systemctl --user restart cooper-panel.socket",
+  ].join("\n");
+
+  function cmdBlock(cmds) {
+    const wrap = document.createElement("div");
+    const pre = document.createElement("div");
+    pre.className = "cmds"; pre.textContent = cmds;
+    const btn = document.createElement("button");
+    btn.className = "hbtn"; btn.textContent = "📋 Copy";
+    btn.addEventListener("click", () => copyText(cmds, btn));
+    wrap.appendChild(pre); wrap.appendChild(btn);
+    return wrap;
+  }
+
+  const diagP = html => {
+    const e = document.createElement("p"); e.innerHTML = html;
+    $("diagResults").appendChild(e); return e;
+  };
+
+  function renderHealth(checks) {
+    const box = $("diagResults"); box.innerHTML = "";
+    diagP("The control API is <b>online</b> — health check run on Cooper itself:");
+    for (const c of checks) {
+      const row = document.createElement("div");
+      row.className = "checkRow";
+      const ic = c.ok === true ? "✅" : c.ok === false ? "❌" : "⚠️";
+      row.innerHTML = `<span class="ic">${ic}</span><span>` +
+        `<span class="lbl">${esc(c.label)}</span>` +
+        (c.detail ? ` — <span class="det">${esc(c.detail)}</span>` : "") +
+        (c.fix ? `<br><span class="fix">Fix: ${esc(c.fix)}</span>` : "") +
+        "</span>";
+      box.appendChild(row);
+    }
+  }
+
+  function renderOfflineDiag(failMs, timedOut) {
+    const box = $("diagResults"); box.innerHTML = "";
+    const addr = activeAddr();
+    const host = addr.split(":")[0], port = addr.split(":")[1] || "8080";
+    if (timedOut) {
+      diagP(`❌ <b>No answer at all from ${esc(addr)}</b> (waited 4 seconds).`);
+      diagP("Cooper looks <b>unreachable</b>: powered off, still booting, on a " +
+        "different Wi-Fi network, or the address in ⚙ Settings is wrong. " +
+        "No button on this page can fix that — check, in order:");
+      diagP("1. Cooper is powered on and finished booting.<br>" +
+        "2. Cooper is on the same network as this device.<br>" +
+        `3. The address in ⚙ Settings is right (currently <b>${esc(addr)}</b>).<br>` +
+        `4. From any computer on this network: <code>ping ${esc(host)}</code>.`);
+    } else {
+      diagP(`⚠️ <b>${esc(host)} answered instantly, but nothing is listening on ` +
+        `port ${esc(port)}</b> (rejected in ${Math.round(failMs)} ms).`);
+      diagP("Cooper is on the network but the <b>API socket is not armed</b>. " +
+        "Usual cause: Cooper was <b>rebooted</b> and its user services don't " +
+        "start until someone logs in (lingering not enabled). The Restart " +
+        "server button cannot fix this — it needs one SSH login. " +
+        `SSH to Cooper (<code>ssh agi@${esc(host)}</code>) and paste:`);
+      box.appendChild(cmdBlock(FIX_CMDS));
+      diagP("Then reload this page — the bar should turn green. To survive " +
+        "future reboots without logging in, have an admin run once:");
+      box.appendChild(cmdBlock("sudo loginctl enable-linger agi"));
+    }
+    diagP('<span class="det">Note: when the socket IS armed, just opening this ' +
+      "page starts the API by itself — so OFFLINE nearly always means one of " +
+      "the cases above.</span>");
+  }
+
+  async function runDiagnostics() {
+    $("diagModal").classList.add("open");
+    $("diagResults").innerHTML = "<p>Running checks…</p>";
+    const t0 = performance.now();
+    let timedOut = false;
+    try {
+      const ctl = new AbortController();
+      const timer = setTimeout(() => { timedOut = true; ctl.abort(); }, 4000);
+      const res = await fetch(base() + "/api/health",
+                              { signal: ctl.signal, cache: "no-store" });
+      clearTimeout(timer);
+      const data = await res.json().catch(() => null);
+      if (data && data.checks) return renderHealth(data.checks);
+      // Reachable, but no /api/health: the API is an older build.
+      $("diagResults").innerHTML = "";
+      diagP("⚠️ The control API answered but has <b>no diagnostics support</b> " +
+        "— Cooper is running an older server version (see the amber version " +
+        "tag). On Cooper: <code>cd ~/cooper && git pull</code>, then restart " +
+        "the service.");
+    } catch (e) {
+      renderOfflineDiag(performance.now() - t0, timedOut);
+    }
+  }
+
+  $("sbarDiag").addEventListener("click", runDiagnostics);
+  $("diagRerun").addEventListener("click", runDiagnostics);
+  $("diagClose").addEventListener("click", () => $("diagModal").classList.remove("open"));
+  $("diagModal").addEventListener("click", e => {
+    if (e.target === $("diagModal")) $("diagModal").classList.remove("open");
   });
   $("resetMsgs").addEventListener("click", resetMessages);
   $("robotSel").addEventListener("change", e => { setRobot(e.target.value); connect(); });
