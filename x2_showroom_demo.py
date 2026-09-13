@@ -122,6 +122,7 @@ class IntroSequenceNode(Node):
         dance_duration_s: float = DANCE_DURATION_S,
         greeting_text: str = GREETING_TEXT,
         intro_text: str = INTRO_TEXT,
+        thank_you_text: str = THANK_YOU_TEXT,
         goodbye_text: str = GOODBY_TEXT,
         timing_file: str = "",
         emoji_id: int = DEFAULT_EMOJI_ID,
@@ -146,6 +147,7 @@ class IntroSequenceNode(Node):
         self._dance_duration_s = dance_duration_s
         self._greeting_text = greeting_text or GREETING_TEXT
         self._intro_text = intro_text or INTRO_TEXT
+        self._thank_you_text = thank_you_text or THANK_YOU_TEXT
         self._goodbye_text = goodbye_text or GOODBY_TEXT
 
         # Mic-source workaround for builds where muting kills all audio:
@@ -742,7 +744,7 @@ class IntroSequenceNode(Node):
 
             self.get_logger().info("=== STEP 4: THANK YOU ===")
             self._play_emoji("closing")
-            self._speak(THANK_YOU_TEXT)
+            self._speak(self._thank_you_text)
 
             self.get_logger().info("=== STEP 5: GOODBYE ===")
             self._speak(
@@ -798,6 +800,8 @@ def main() -> None:
                         help="custom welcome greeting spoken in step 1")
     parser.add_argument("--intro-text", default=INTRO_TEXT,
                         help="custom self-introduction spoken in step 2")
+    parser.add_argument("--thank-you-text", default=THANK_YOU_TEXT,
+                        help="custom thank-you message spoken in step 4")
     parser.add_argument("--goodbye-text", default=GOODBY_TEXT,
                         help="custom goodbye message spoken in step 5")
     parser.add_argument("--timing-file", default="",
@@ -838,6 +842,7 @@ def main() -> None:
         dance_duration_s=args.dance_duration,
         greeting_text=args.greeting_text,
         intro_text=args.intro_text,
+        thank_you_text=args.thank_you_text,
         goodbye_text=args.goodbye_text,
         timing_file=args.timing_file,
         emoji_id=args.emoji_id,

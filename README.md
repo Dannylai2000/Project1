@@ -112,11 +112,15 @@ Features:
   switch stays truthful when the show mutes/unmutes the robot.
 - **Personalized messages** — the "Personalize messages" card holds a
   tenant/guest name, separate morning and afternoon welcome messages, the
-  self-introduction spoken before the dance, and a goodbye message —
+  self-introduction, a thank-you (after the dance), and a goodbye —
   organized into named **message groups** (e.g. "Show suite", "Event"),
   each a full independent set. Users create/rename/delete groups; the
   active group's messages are the ones the show speaks, so switching
-  occasion is one dropdown selection. Groups are saved in the browser.
+  occasion is one dropdown selection. **Groups are stored on the
+  connected robot** (`cooper_messages.json`, one set per robot), so every
+  device sees and edits the same texts, and the show always speaks the
+  robot's stored active group no matter which device pressed the button
+  (a browser's old local copy is migrated to the robot automatically).
   Cooper picks AM vs PM by its own clock at show time,
   and `{name}` in any message is replaced with the entered name (blank =
   "everyone"). **All fields are blank by default: blank = Cooper speaks
