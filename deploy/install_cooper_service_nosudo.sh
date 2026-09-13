@@ -92,9 +92,17 @@ EOF
     echo "        sudo loginctl enable-linger $USER"
     echo "      Until then the socket arms when this user logs in — robots"
     echo "      that auto-login their user are fine as-is."
+    echo "      No admin available? Re-run this installer with --cron:"
+    echo "      cron @reboot needs no login and no admin (always-on mode)."
   fi
 else
   echo "Mode:    cron @reboot fallback (always-on with auto-restart)"
+  # Hand port $PORT over: an armed user-systemd socket from a previous
+  # install would block the cron-run server ("address already in use").
+  if command -v systemctl >/dev/null 2>&1; then
+    systemctl --user disable --now cooper-panel.socket cooper-panel.service \
+      >/dev/null 2>&1 || true
+  fi
   command -v crontab >/dev/null 2>&1 || {
     echo "ERROR: neither user systemd nor crontab is available." >&2
     echo "Start manually instead:" >&2

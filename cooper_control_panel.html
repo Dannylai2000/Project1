@@ -681,7 +681,7 @@
 
   // Bumped on every change, in lockstep with SERVER_VERSION in
   // cooper_panel_server.py. Shown top-right; amber = page and API differ.
-  const PANEL_VERSION = "2026.09.13-2";
+  const PANEL_VERSION = "2026.09.13-3";
   $("verChip").textContent = "v" + PANEL_VERSION;
 
   function status(msg, cls = "") {
@@ -1515,6 +1515,10 @@
       diagP("Then reload this page — the bar should turn green. To survive " +
         "future reboots without logging in, have an admin run once:");
       box.appendChild(cmdBlock("sudo loginctl enable-linger agi"));
+      diagP('<span class="det">No admin on Cooper (sudo refused)? Switch to ' +
+        "cron mode instead — it needs no login and no admin:</span>");
+      box.appendChild(cmdBlock(
+        "cd ~/cooper && ./deploy/install_cooper_service_nosudo.sh --pin <PIN> --cron"));
     }
     diagP('<span class="det">Note: when the socket IS armed, just opening this ' +
       "page starts the API by itself — so OFFLINE nearly always means one of " +

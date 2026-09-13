@@ -53,10 +53,14 @@ The no-sudo installer prefers **systemd user units** (`~/.config/systemd/user`, 
 activation. Start-at-boot without a login needs lingering — the script
 tries to enable it and prints the one admin command
 (`sudo loginctl enable-linger <user>`) if it can't; robots that
-auto-login their user work without it. Where user systemd is unavailable
-it falls back to a **cron @reboot** entry running
-`deploy/run_cooper_panel.sh` (always-on, auto-restarts on crash, log in
-`~/cooper-panel.log`). For a quick one-off start with no install at all:
+auto-login their user work without it. **If `agi` has no sudo rights and
+no admin is available** (the command answers "not allowed to execute"),
+use `--cron` instead: a cron @reboot entry runs at every boot with no
+login and no admin needed (always-on with auto-restart, log in
+`~/cooper-panel.log`); the installer disables the systemd units first so
+the two don't fight over the port. The same cron fallback is used
+automatically where user systemd is unavailable. For a quick one-off
+start with no install at all:
 
 ```bash
 nohup ./deploy/run_cooper_panel.sh >> ~/cooper-panel.log 2>&1 &

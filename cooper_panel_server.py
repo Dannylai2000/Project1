@@ -67,7 +67,7 @@ LOGGER = logging.getLogger("cooper_panel")
 # Bumped on every change, in lockstep with PANEL_VERSION in
 # cooper_control_panel.html. The panel shows both and flags a mismatch,
 # so a half-deployed update is visible at a glance.
-SERVER_VERSION = "2026.09.13-2"
+SERVER_VERSION = "2026.09.13-3"
 
 # For the health report's uptime figure.
 SERVER_STARTED = time.time()
@@ -909,7 +909,9 @@ def health_report(node: CooperPanelNode, config: PanelConfig, pin: str) -> list[
             "Cooper — after a reboot the panel stays offline until then "
             "(fine if Cooper auto-logs-in at boot)",
             "one-time admin command on Cooper: "
-            f"sudo loginctl enable-linger {user or '<user>'}")
+            f"sudo loginctl enable-linger {user or '<user>'} — or, with no "
+            "admin available, re-run the installer with --cron (cron needs "
+            "no login and no admin)")
 
     # AimDK ROS services the panel depends on.
     for cid, label, client in (
