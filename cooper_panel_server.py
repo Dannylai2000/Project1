@@ -69,7 +69,7 @@ LOGGER = logging.getLogger("cooper_panel")
 # Bumped on every change, in lockstep with PANEL_VERSION in
 # cooper_control_panel.html. The panel shows both and flags a mismatch,
 # so a half-deployed update is visible at a glance.
-SERVER_VERSION = "2026.09.13-16"
+SERVER_VERSION = "2026.09.13-17"
 
 # For the health report's uptime figure.
 SERVER_STARTED = time.time()
@@ -230,6 +230,79 @@ def _duration_from_value(fname: str, v) -> float | None:
     return val if 3.0 <= val <= 3600.0 else None
 
 
+AUDIO_EXTS = (".wav", ".mp3", ".ogg", ".flac", ".m4a", ".aac")
+
+
+def _wav_duration(path: Path) -> float | None:
+    import wave
+    with suppress(Exception):
+        with wave.open(str(path), "rb") as w:
+            rate = w.getframerate()
+            if rate > 0:
+                return w.getnframes() / rate
+    return None
+
+
+def _mp3_duration(path: Path) -> float | None:
+    """CBR estimate from the first MPEG frame header — close enough for
+    the show to wait out the whole song."""
+    with suppress(Exception):
+        data = path.read_bytes()
+        size = len(data)
+        i = 0
+        if data[:3] == b"ID3":                     # skip the ID3v2 tag
+            i = 10 + (((data[6] & 0x7F) << 21) | ((data[7] & 0x7F) << 14)
+                      | ((data[8] & 0x7F) << 7) | (data[9] & 0x7F))
+        while i < size - 4:
+            if data[i] == 0xFF and (data[i + 1] & 0xE0) == 0xE0:
+                ver   = (data[i + 1] >> 3) & 0x03  # 3=MPEG1, 2=MPEG2
+                layer = (data[i + 1] >> 1) & 0x03  # 1=Layer III
+                bidx  = (data[i + 2] >> 4) & 0x0F
+                if layer == 1 and 0 < bidx < 15:
+                    kbps = ((0, 32, 40, 48, 56, 64, 80, 96, 112, 128,
+                             160, 192, 224, 256, 320) if ver == 3 else
+                            (0, 8, 16, 24, 32, 40, 48, 56, 64, 80,
+                             96, 112, 128, 144, 160))[bidx]
+                    if kbps:
+                        return (size - i) * 8.0 / (kbps * 1000.0)
+            i += 1
+    return None
+
+
+def audio_file_duration(path: Path) -> float | None:
+    ext = path.suffix.lower()
+    if ext == ".wav":
+        return _wav_duration(path)
+    if ext == ".mp3":
+        return _mp3_duration(path)
+    return None
+
+
+def files_duration_s(file_paths) -> float | None:
+    """Song duration measured from the resource's audio files ON DISK.
+
+    LinkCraft's metadata carries no duration, but its `files` entries point
+    into /agibot/.../resources/ on the robot — the audio lives there and the
+    API runs on the same machine, so read it directly.
+    """
+    candidates: list[Path] = []
+    for raw in list(file_paths or [])[:5]:
+        p = Path(str(raw))
+        with suppress(OSError):
+            if p.is_dir():
+                for child in sorted(p.rglob("*"))[:200]:
+                    if child.suffix.lower() in AUDIO_EXTS and child.is_file():
+                        candidates.append(child)
+            elif p.is_file() and p.suffix.lower() in AUDIO_EXTS:
+                candidates.append(p)
+    for c in candidates:
+        d = audio_file_duration(c)
+        if d is not None and 3.0 <= d <= 3600.0:
+            LOGGER.info("Song duration from %s: %.1fs", c.name, d)
+            return round(d, 1)
+    return None
+
+
 def resource_duration_s(resource) -> float | None:
     """Best-effort song duration (seconds) from a LinkCraft resource.
 
@@ -317,6 +390,9 @@ class CooperPanelNode(Node):
         self._resource_cache: dict = {}
         # One-time journal dump of a LinkCraft resource's fields (diagnosis).
         self._resource_fields_logged = False
+        self._audio_probe_logged = False
+        # (key, version) -> measured song duration in seconds (or None).
+        self._duration_cache: dict = {}
 
     # ── helpers ────────────────────────────────────────────────────────────
 
@@ -372,9 +448,37 @@ class CooperPanelNode(Node):
                 version = ""
                 with suppress(Exception):
                     version = str(r.current_version.version)
+                dur = resource_duration_s(r)
+                if dur is None:
+                    # Metadata carries no duration on this SDK — measure the
+                    # audio file the resource's `files` entries point at.
+                    ck = (key, version)
+                    if ck in self._duration_cache:
+                        dur = self._duration_cache[ck]
+                    else:
+                        paths = []
+                        with suppress(Exception):
+                            paths = [str(f) for f in r.current_version.files]
+                        dur = files_duration_s(paths)
+                        if dur is None and paths and not self._audio_probe_logged:
+                            # One-time look inside the resource dir so the
+                            # journal shows what is actually there.
+                            self._audio_probe_logged = True
+                            listing: list = []
+                            with suppress(Exception):
+                                p = Path(paths[0])
+                                if p.is_dir():
+                                    listing = [c.name for c in
+                                               sorted(p.iterdir())[:20]]
+                                else:
+                                    listing = [paths[0] + (" (file)" if p.exists()
+                                                           else " (missing)")]
+                            LOGGER.info("Audio probe found no duration for %s;"
+                                        " files=%s contents=%s",
+                                        key, paths[:3], listing)
+                        self._duration_cache[ck] = dur
                 dances.append({"key": key, "name": name or key,
-                               "version": version,
-                               "duration": resource_duration_s(r)})
+                               "version": version, "duration": dur})
         return dances
 
     def start_dance(self, resource_key: str) -> dict:
