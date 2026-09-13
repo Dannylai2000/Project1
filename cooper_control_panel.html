@@ -701,7 +701,7 @@
 
   // Bumped on every change, in lockstep with SERVER_VERSION in
   // cooper_panel_server.py. Shown top-right; amber = page and API differ.
-  const PANEL_VERSION = "2026.09.13-5";
+  const PANEL_VERSION = "2026.09.13-6";
   $("verChip").textContent = "v" + PANEL_VERSION;
 
   function status(msg, cls = "") {
@@ -1058,11 +1058,17 @@
       $("volState").textContent = "—";
     }
     // Gear-up radios mirror the server's MIC mode (shared across devices).
-    if (!gearing) {
+    // An older API doesn't report mic_geared at all — then say so instead
+    // of silently forcing the radio back to Normal every poll.
+    if (!gearing && typeof s.mic_geared === "boolean") {
       $("gearUp").disabled = $("gearDown").disabled = showRunning;
-      $("gearUp").checked = s.mic_geared === true;
+      $("gearUp").checked = s.mic_geared;
       $("gearDown").checked = !s.mic_geared;
       $("gearState").textContent = s.mic_geared ? "geared up" : "normal";
+    } else if (!gearing) {
+      $("gearUp").disabled = $("gearDown").disabled = true;
+      $("gearUp").checked = $("gearDown").checked = false;
+      $("gearState").textContent = "needs API update on Cooper";
     }
     $("listenHint").textContent = showRunning
       ? "The show controls the microphone while it is running."
@@ -1375,7 +1381,14 @@
         ? "Geared up — external MIC active, ready to perform."
         : "Back to normal — in-built MIC active.", "ok");
     } catch (err) {
-      status(`MIC mode change failed: ${err.message}`, "err");
+      if (/not found|404/i.test(err.message)) {
+        status("Gear up needs a newer API on Cooper — on the robot: " +
+          "cd ~/cooper && git pull, then pkill -f cooper_panel_server.py " +
+          "(the top-right version tag must not show amber \"page ≠ API\").",
+          "err");
+      } else {
+        status(`MIC mode change failed: ${err.message}`, "err");
+      }
     } finally {
       gearing = false;
       poll();  // re-renders the radios from Cooper's actual state
