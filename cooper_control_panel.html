@@ -240,6 +240,8 @@
     border-radius: 8px; padding: 10px 12px; font-size: 16px; font-family: inherit;
   }
   .hint { color: var(--dim); font-size: 12.5px; margin-top: 10px; }
+  .hint.ok { color: var(--ok); }
+  .hint.warn { color: var(--warn); }
   .hint code { background: #0d1116; border: 1px solid var(--edge);
                border-radius: 4px; padding: 0 5px; }
   #settings { display: none; }
@@ -316,15 +318,16 @@
         Performance diagnostics — show Cooper's response times</label>
     </div>
     <div class="field">
-      <label for="dances">Show dance — the song used by ▶ Run full show and
-        Play dance only. Stored on the connected robot: every robot has its
-        own LinkCraft library with different IDs, so set this once per robot
-        (switch Active robot above, then pick here).</label>
+      <label for="dances">Show dance for: <b id="danceRobotName">…</b> —
+        the song ▶ Run full show and Play dance only use. Every robot has
+        its own LinkCraft library with different IDs, so pick it once per
+        robot (switch Active robot above, then pick here — it saves
+        immediately).</label>
       <div class="row">
         <select id="dances"><option value="">Connect to load songs…</option></select>
         <button class="secondary" id="refresh" title="Reload dance list">↻</button>
       </div>
-      <div class="hint" id="danceIdInfo" style="word-break:break-all">LinkCraft ID: —</div>
+      <div class="hint" id="danceIdInfo" style="word-break:break-all">—</div>
     </div>
     <div class="field">
       <label>Custom actions — label plus motion / area ids from the
@@ -713,7 +716,7 @@
 
   // Bumped on every change, in lockstep with SERVER_VERSION in
   // cooper_panel_server.py. Shown top-right; amber = page and API differ.
-  const PANEL_VERSION = "2026.09.13-9";
+  const PANEL_VERSION = "2026.09.13-10";
   $("verChip").textContent = "v" + PANEL_VERSION;
 
   function status(msg, cls = "") {
@@ -1168,13 +1171,27 @@
   let showDance = "";   // resource key of the configured show dance (shared)
 
   function updateDanceInfo() {
-    const opt = [...$("dances").options].find(o => o.value === showDance);
+    const opt = [...$("dances").options].find(o => o.value === showDance && o.value);
     const robotName = activeRobot === "secondary" ? "secondary robot" : "primary robot";
+    $("danceRobotName").textContent = `${robotName} (${activeAddr()})`;
     $("danceInfo").textContent = "Show dance: " +
-      (showDance && opt ? opt.textContent
+      (showDance && opt ? `${opt.textContent} · on the ${robotName}`
         : showDance ? showDance.slice(-16) + " (not in this robot's library!)"
         : `— none set on the ${robotName} (pick one in ⚙ Settings)`);
-    $("danceIdInfo").textContent = "LinkCraft ID: " + (showDance || "—");
+    const info = $("danceIdInfo");
+    if (showDance && opt) {
+      info.textContent = `✓ Saved on the ${robotName} · LinkCraft ID: ${showDance}`;
+      info.className = "hint ok";
+    } else if (showDance) {
+      info.textContent = `⚠ The saved ID is not in this robot's library — it ` +
+        `belongs to the other robot. Pick this robot's own song above. ` +
+        `Saved ID: ${showDance}`;
+      info.className = "hint warn";
+    } else {
+      info.textContent = `⚠ No show dance saved on the ${robotName} yet — ` +
+        `the show will not start until you pick one above.`;
+      info.className = "hint warn";
+    }
   }
 
   const danceLabel = d => (d.name !== d.key ? d.name : d.key.slice(-16));
@@ -1207,15 +1224,21 @@
       sel.innerHTML = '<option value="">No dances found</option>';
       return;
     }
+    // Placeholder first: without it the browser DISPLAYS the first song even
+    // when nothing is saved, and re-picking that song fires no change event —
+    // the selection silently never saves.
+    const ph = document.createElement("option");
+    ph.value = "";
+    ph.textContent = "— select this robot's show dance —";
+    sel.appendChild(ph);
     for (const d of pool) {
       const opt = document.createElement("option");
       opt.value = d.key;
       opt.textContent = danceLabel(d);
       sel.appendChild(opt);
     }
-    if (showDance && [...sel.options].some(o => o.value === showDance)) {
-      sel.value = showDance;
-    }
+    sel.value = (showDance && [...sel.options].some(o => o.value === showDance))
+      ? showDance : "";
     updateDanceInfo();
   }
 
@@ -1454,16 +1477,25 @@
   });
 
   $("dances").addEventListener("change", async () => {
+    const previous = showDance;
     showDance = $("dances").value;
-    updateDanceInfo();
+    const robotName = activeRobot === "secondary" ? "secondary robot" : "primary robot";
+    $("danceIdInfo").textContent = "Saving…";
+    $("danceIdInfo").className = "hint";
     try {
       await api("/api/shortlist", {
         method: "POST", body: JSON.stringify({ show_dance: showDance }),
       });
-      status(`Show dance set: ${$("dances").selectedOptions[0].textContent}`, "ok");
+      status(showDance
+        ? `✓ Show dance saved on the ${robotName}: ${$("dances").selectedOptions[0].textContent}`
+        : `Show dance cleared on the ${robotName}.`, "ok");
     } catch (e) {
+      showDance = previous;  // save failed — show the truth, not the wish
+      renderDanceSelect();
       status(`Saving show dance failed: ${e.message}`, "err");
+      return;
     }
+    updateDanceInfo();
   });
 
   $("playDance").addEventListener("click", async () => {
