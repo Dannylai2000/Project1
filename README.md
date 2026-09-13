@@ -90,6 +90,13 @@ Features:
 - **PIN protection** — all control actions (listening, dance, show)
   require a PIN when the server is started with one. The page asks for it
   in ⚙ settings and remembers it.
+- **🎭 Gear up for performance** — a MIC-mode radio in the Performance
+  card: gearing up sets the speaker to 0, switches to the external MIC,
+  waits 5 s, then restores the volume to 70% — Cooper is then ready to
+  perform with sound while ignoring the audience, and Run full show
+  skips its own MIC switching. "Normal" reverses it. The mode is stored
+  on the robot, so every panel shows the true state; an un-geared show
+  still switches MICs automatically as a fallback.
 - **🩺 Diagnose button** — one tap on the server status bar. API online:
   runs a health check on Cooper itself (AimDK services, start-after-reboot
   persistence, program files, PIN) with a plain-language fix for anything

@@ -390,6 +390,17 @@
       <span id="newNoticeText">✨ New dance songs from LinkCraft</span>
       <button class="secondary" id="reviewNew">Review</button>
     </div>
+    <div class="row audioRow">
+      <span class="audioName">🎭 MIC mode</span>
+      <label class="rad"><input type="radio" name="gearRad" id="gearUp"> Gear up for performance</label>
+      <label class="rad"><input type="radio" name="gearRad" id="gearDown"> Normal</label>
+      <span class="state" id="gearState">unknown</span>
+    </div>
+    <div class="hint">Gear up = speaker to 0, switch to the external MIC,
+      wait 5 s, speaker back to 70% — Cooper is then ready to perform with
+      sound and ignores the audience. Run full show skips its own MIC
+      switching while geared up. Select Normal after the performance to
+      return to the in-built MIC.</div>
     <div class="row">
       <button class="big" id="runShow">▶ Run full show</button>
     </div>
@@ -529,6 +540,15 @@
 
       <h3>Performance</h3>
       <ul>
+        <li><b>🎭 MIC mode — Gear up for performance</b> — prepares Cooper's
+          audio by hand: speaker volume to 0, switch from the in-built MIC
+          to the external MIC, a 5-second pause, then volume back to 70%.
+          While geared up Cooper performs with sound and ignores the
+          audience, and <b>Run full show skips its own MIC switching</b>
+          (faster show start, no switch announcements). Select
+          <b>Normal</b> after the performance to return to the in-built
+          MIC. The mode is shared by all devices; if you forget to gear
+          up, the show still switches MICs automatically as before.</li>
         <li><b>▶ Run full show</b> — the complete sequence: wave + welcome,
           introduction, dance, bow, clap, thank-you + heart, goodbye + blow
           kiss, goodbye wave. Buttons lock while a show is running.</li>
@@ -681,7 +701,7 @@
 
   // Bumped on every change, in lockstep with SERVER_VERSION in
   // cooper_panel_server.py. Shown top-right; amber = page and API differ.
-  const PANEL_VERSION = "2026.09.13-4";
+  const PANEL_VERSION = "2026.09.13-5";
   $("verChip").textContent = "v" + PANEL_VERSION;
 
   function status(msg, cls = "") {
@@ -978,7 +998,8 @@
   // ── web server availability bar ────────────────────────────────────────
   let online = false;
 
-  const AUDIO_RADIOS = ["micOn", "micOff", "spkOn", "spkOff", "volSlider"];
+  const AUDIO_RADIOS = ["micOn", "micOff", "spkOn", "spkOff", "volSlider",
+                        "gearUp", "gearDown"];
 
   function updateServerBar(up) {
     online = up;
@@ -1035,6 +1056,13 @@
       $("volState").textContent = s.volume;
     } else if (s.volume == null) {
       $("volState").textContent = "—";
+    }
+    // Gear-up radios mirror the server's MIC mode (shared across devices).
+    if (!gearing) {
+      $("gearUp").disabled = $("gearDown").disabled = showRunning;
+      $("gearUp").checked = s.mic_geared === true;
+      $("gearDown").checked = !s.mic_geared;
+      $("gearState").textContent = s.mic_geared ? "geared up" : "normal";
     }
     $("listenHint").textContent = showRunning
       ? "The show controls the microphone while it is running."
@@ -1328,6 +1356,34 @@
     setAudio("/api/speaker", { on: true }, "Speaker ON", "Speaker is on."));
   $("spkOff").addEventListener("change", () =>
     setAudio("/api/speaker", { on: false }, "Speaker MUTED", "Speaker is muted — Cooper makes no sound."));
+  // Gear up / Normal: the ~6 s server sequence (volume 0 → mic switch →
+  // 5 s settle → volume 70). Radios re-sync from /api/status polling.
+  let gearing = false;
+  async function setGear(external) {
+    gearing = true;
+    $("gearUp").disabled = $("gearDown").disabled = true;
+    $("gearState").textContent = external
+      ? "gearing up… (~6 s)" : "returning to normal… (~6 s)";
+    status(external
+      ? "Gearing up: volume 0 → external MIC → 5 s pause → volume 70%…"
+      : "Back to normal: volume 0 → in-built MIC → 5 s pause → volume 70%…");
+    try {
+      const data = await api("/api/gear_up",
+        { method: "POST", body: JSON.stringify({ external }) });
+      logDiag(external ? "Gear up" : "Gear down", data);
+      status(external
+        ? "Geared up — external MIC active, ready to perform."
+        : "Back to normal — in-built MIC active.", "ok");
+    } catch (err) {
+      status(`MIC mode change failed: ${err.message}`, "err");
+    } finally {
+      gearing = false;
+      poll();  // re-renders the radios from Cooper's actual state
+    }
+  }
+  $("gearUp").addEventListener("change", () => setGear(true));
+  $("gearDown").addEventListener("change", () => setGear(false));
+
   $("volSlider").addEventListener("input", () => {
     $("volState").textContent = $("volSlider").value;
   });
