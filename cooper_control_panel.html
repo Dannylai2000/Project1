@@ -717,7 +717,7 @@
 
   // Bumped on every change, in lockstep with SERVER_VERSION in
   // cooper_panel_server.py. Shown top-right; amber = page and API differ.
-  const PANEL_VERSION = "2026.09.13-13";
+  const PANEL_VERSION = "2026.09.13-14";
   $("verChip").textContent = "v" + PANEL_VERSION;
 
   function status(msg, cls = "") {
@@ -793,12 +793,47 @@
       JSON.stringify({ groups: msgGroups, active: activeGroup }));
   }
 
+  // Default texts from RETIRED page versions. Groups saved back then still
+  // carry them in this browser's storage and they override the show script's
+  // built-in messages ("Good afternoon…" instead of Cooper's real intro).
+  // Purged automatically on load; texts the user typed themselves never
+  // match and are kept.
+  const LEGACY_DEFAULT_TEXTS = [
+    "Good morning {name}! Welcome to One Comcentre. It is wonderful to see you today.",
+    "Good afternoon {name}! Welcome to One Comcentre. It is wonderful to see you today.",
+    "My name is Cooper. I am the One Comcentre Ambassador, an AI-enabled humanoid robot. " +
+      "I may still be in training, but I'm ready for the future. " +
+      "Before I begin, please give me at least 2 meters distance. " +
+      "Here is my best move. I hope you enjoy the show!",
+    "My name is Cooper. I may still be at training, but I am ready for the future. " +
+      "I can do many things and even help lead exercise sessions for you and your teams. " +
+      "I hope you enjoy the show!",
+    "Thank you for visiting. See you in One Comcentre for the future. Bye!",
+    "See you at One Com Center",
+  ];
+
+  function purgeLegacyDefaults() {
+    let purged = 0;
+    for (const g of Object.values(msgGroups)) {
+      for (const id of MSG_FIELDS) {
+        const v = (g[id] || "").trim();
+        if (v && LEGACY_DEFAULT_TEXTS.includes(v)) { g[id] = ""; purged++; }
+      }
+    }
+    if (purged) {
+      saveMsgGroups();
+      status(`${purged} outdated default message(s) cleared on this device — ` +
+        "Cooper speaks its built-in texts instead.", "ok");
+    }
+  }
+
   function loadMsgGroups() {
     try {
       const s = JSON.parse(localStorage.getItem("cooper_msg_groups") || "null");
       if (s && s.groups && Object.keys(s.groups).length) {
         msgGroups = s.groups;
         activeGroup = s.active in s.groups ? s.active : Object.keys(s.groups)[0];
+        purgeLegacyDefaults();
         return;
       }
     } catch {}
