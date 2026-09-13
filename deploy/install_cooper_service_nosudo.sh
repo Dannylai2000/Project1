@@ -109,20 +109,29 @@ else
     echo "  nohup $APP_DIR/deploy/run_cooper_panel.sh >> \$HOME/cooper-panel.log 2>&1 &" >&2
     exit 1
   }
-  CRON_LINE="@reboot /bin/bash $APP_DIR/deploy/run_cooper_panel.sh >> \$HOME/cooper-panel.log 2>&1"
+  CRON_BOOT="@reboot /bin/bash $APP_DIR/deploy/run_cooper_panel.sh >> \$HOME/cooper-panel.log 2>&1"
+  # Every-minute watchdog: revives the API within 60 s if it is ever not
+  # running — covers crashes AND systems that kill a user's background
+  # processes at logout (which also kills the nohup start below). The
+  # pattern is anchored to end-of-cmdline: a real wrapper's command line
+  # ENDS with the script path, while the watchdog's own cron shell (which
+  # also contains the path, in its restart half) continues with the log
+  # redirect — so the watchdog never matches itself.
+  CRON_WATCH="* * * * * pgrep -f \"[r]un_cooper_panel.sh\$\" >/dev/null 2>&1 || /bin/bash $APP_DIR/deploy/run_cooper_panel.sh >> \$HOME/cooper-panel.log 2>&1"
   # Build the new crontab in a temp file. Every step tolerates "no crontab
   # yet" and "no other lines" — with set -e, a bare pipeline here used to
   # kill the whole script on machines that never had a crontab.
   TMP_CRON="$(mktemp)"
   ( crontab -l 2>/dev/null || true ) | grep -v "run_cooper_panel.sh" > "$TMP_CRON" || true
-  echo "$CRON_LINE" >> "$TMP_CRON"
+  printf '%s\n%s\n' "$CRON_BOOT" "$CRON_WATCH" >> "$TMP_CRON"
   crontab "$TMP_CRON"
   rm -f "$TMP_CRON"
   crontab -l | grep -q "run_cooper_panel.sh" || {
     echo "ERROR: cron entry did not stick — check 'crontab -l'." >&2
     exit 1
   }
-  echo "Cron entry installed. Starting the API now..."
+  echo "Cron entries installed (@reboot + every-minute watchdog)."
+  echo "Starting the API now..."
   if ! pgrep -f "cooper_panel_server.py --port $PORT" >/dev/null 2>&1; then
     nohup /bin/bash "$APP_DIR/deploy/run_cooper_panel.sh" >> "$HOME/cooper-panel.log" 2>&1 &
     echo "Started (log: ~/cooper-panel.log)."
