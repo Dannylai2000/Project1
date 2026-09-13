@@ -7,11 +7,13 @@ webpage (hosted on optimus) talks to:
     GET  /api/dances        → LinkCraft dance resources (live from the robot)
     GET  /api/actions       → one-tap gestures
     GET  /api/shortlist     → shared shortlist + per-dance play times
+    GET  /api/messages      → this robot's message groups (shared by devices)
     POST /api/dance         → {"key": "..."} start that dance now
     POST /api/listening     → {"listen": true|false} mic on / off
     POST /api/speaker       → {"on": true|false} speaker on / muted
     POST /api/action        → {"action": "..."} run a gesture
     POST /api/shortlist     → save shortlist / play times
+    POST /api/messages      → save the message groups on this robot
     POST /api/songs_seen    → acknowledge new songs
     POST /api/show          → run the full showroom sequence
 
@@ -67,7 +69,7 @@ LOGGER = logging.getLogger("cooper_panel")
 # Bumped on every change, in lockstep with PANEL_VERSION in
 # cooper_control_panel.html. The panel shows both and flags a mismatch,
 # so a half-deployed update is visible at a glance.
-SERVER_VERSION = "2026.09.13-14"
+SERVER_VERSION = "2026.09.13-15"
 
 # For the health report's uptime figure.
 SERVER_STARTED = time.time()
@@ -96,6 +98,10 @@ ACTION_SCRIPT   = Path(__file__).resolve().parent / "x2_action.py"
 # Shared panel settings (dance shortlist + play times), one file for all
 # devices, stored next to the server on Cooper.
 CONFIG_FILE     = Path(__file__).resolve().parent / "cooper_panel_config.json"
+
+# Personalized message groups — a dedicated file PER ROBOT, so every panel
+# device reads and edits the same texts (browser storage used to drift).
+MESSAGES_FILE   = Path(__file__).resolve().parent / "cooper_messages.json"
 
 # Milestones written by the running show script (first speech, dance start),
 # read back for the panel's performance diagnostics.
@@ -677,6 +683,7 @@ class ShowRunner:
         unmute_after: bool,
         greeting: str | None = None,
         intro: str | None = None,
+        thank_you: str | None = None,
         goodbye: str | None = None,
         dance_duration: float | None = None,
         volume: int | None = None,
@@ -695,6 +702,8 @@ class ShowRunner:
                 cmd += ["--greeting-text", greeting]
             if intro:
                 cmd += ["--intro-text", intro]
+            if thank_you:
+                cmd += ["--thank-you-text", thank_you]
             if goodbye:
                 cmd += ["--goodbye-text", goodbye]
             if dance_duration is not None:
@@ -989,6 +998,56 @@ class LibraryWatcher:
 
 MAX_MESSAGE_LEN = 500
 
+# Field keys of one message group (panel and store share this shape).
+MSG_FIELD_KEYS = ("guestName", "greetAM", "greetPM", "introMsg",
+                  "thankYouMsg", "goodbyeMsg")
+
+
+class MessagesStore:
+    """Per-robot store for the personalized message groups.
+
+    One JSON file next to the server: {"active": name, "groups": {name:
+    {guestName, greetAM, greetPM, introMsg, thankYouMsg, goodbyeMsg}}}.
+    Empty fields mean "speak the show script's built-in text".
+    """
+
+    MAX_GROUPS = 20
+    MAX_NAME = 50
+
+    def __init__(self, path: Path) -> None:
+        self._path = path
+        self._lock = threading.Lock()
+
+    def _clean(self, active, groups) -> dict:
+        clean: dict = {}
+        for name, g in list((groups or {}).items())[: self.MAX_GROUPS]:
+            if not isinstance(g, dict):
+                continue
+            nm = str(name).strip()[: self.MAX_NAME]
+            if not nm:
+                continue
+            clean[nm] = {k: str(g.get(k) or "")[:MAX_MESSAGE_LEN]
+                         for k in MSG_FIELD_KEYS}
+        act = str(active or "").strip()[: self.MAX_NAME]
+        if act not in clean and clean:
+            act = next(iter(clean))
+        return {"active": act if clean else "", "groups": clean}
+
+    def get(self) -> dict:
+        with self._lock:
+            try:
+                data = json.loads(self._path.read_text())
+            except (OSError, json.JSONDecodeError):
+                return {"active": "", "groups": {}}
+        return self._clean(data.get("active"), data.get("groups"))
+
+    def set(self, active, groups) -> dict:
+        cleaned = self._clean(active, groups)
+        with self._lock:
+            self._path.write_text(
+                json.dumps(cleaned, ensure_ascii=False, indent=2))
+        return cleaned
+
 
 def run_action(motion: int, area: int) -> dict:
     """Execute one gesture via the standalone x2_action.py program."""
@@ -1006,26 +1065,37 @@ def run_action(motion: int, area: int) -> dict:
     return timing
 
 
-def resolve_messages(body: dict) -> tuple[str | None, str | None, str | None]:
-    """Build the greeting/intro/goodbye text from the panel's message settings.
+def resolve_messages(body: dict, messages: MessagesStore):
+    """(greeting, intro, thank_you, goodbye) texts for the show.
+
+    Explicit texts in the request body win (older panel pages send them);
+    otherwise the robot's stored ACTIVE message group is used, so every
+    device launches the show with the same texts.
 
     - The AM greeting is used before 12:00 (Cooper's clock), PM after; if
       only one is filled in, it is used all day.
     - "{name}" in any message is replaced with the tenant/guest name
       (falls back to "everyone").
-    - Empty fields mean the show script's built-in default text is used.
+    - Empty everywhere = None = the show script's built-in text.
     """
-    name = str(body.get("name") or "").strip() or "everyone"
+    stored = messages.get()
+    group = (stored["groups"] or {}).get(stored["active"], {})
 
-    def clean(field: str) -> str:
-        return str(body.get(field) or "").strip()[:MAX_MESSAGE_LEN]
+    def pick(body_key: str, group_key: str) -> str:
+        v = str(body.get(body_key) or "").strip()
+        if not v:
+            v = str(group.get(group_key) or "").strip()
+        return v[:MAX_MESSAGE_LEN]
 
-    am, pm = clean("greeting_am"), clean("greeting_pm")
-    intro, goodbye = clean("intro"), clean("goodbye")
+    name = pick("name", "guestName") or "everyone"
+    am, pm = pick("greeting_am", "greetAM"), pick("greeting_pm", "greetPM")
+    intro = pick("intro", "introMsg")
+    thanks = pick("thank_you", "thankYouMsg")
+    goodbye = pick("goodbye", "goodbyeMsg")
     greeting = (am if time.localtime().tm_hour < 12 else pm) or am or pm
 
     sub = lambda text: text.replace("{name}", name) if text else None
-    return sub(greeting), sub(intro), sub(goodbye)
+    return sub(greeting), sub(intro), sub(thanks), sub(goodbye)
 
 
 def health_report(node: CooperPanelNode, config: PanelConfig, pin: str) -> list[dict]:
@@ -1139,7 +1209,7 @@ def self_service_names(node):
 
 def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str,
                  config: PanelConfig, library: LibraryWatcher,
-                 last_activity: list):
+                 messages: MessagesStore, last_activity: list):
     class Handler(BaseHTTPRequestHandler):
         server_version = "CooperPanel/1.0"
 
@@ -1225,6 +1295,8 @@ def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str,
                                         "shortlist": config.get_shortlist(),
                                         "times": config.get_dance_times(),
                                         "show_dance": config.get_show_dance()})
+            if self.path == "/api/messages":
+                return self._send_json({"ok": True, **messages.get()})
             if self.path == "/api/actions":
                 actions = [
                     {"key": k, "label": a["label"], "emoji": a["emoji"]}
@@ -1318,6 +1390,13 @@ def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str,
                              "error": "missing 'shortlist', 'times' or 'show_dance'"}, 400)
                     return self._send_json({"ok": True, **result})
 
+                if self.path == "/api/messages":
+                    if "groups" not in body:
+                        return self._send_json(
+                            {"ok": False, "error": "missing 'groups'"}, 400)
+                    saved = messages.set(body.get("active"), body.get("groups"))
+                    return self._send_json({"ok": True, **saved})
+
                 if self.path == "/api/songs_seen":
                     return self._send_json({"ok": True, "seen": library.mark_all_seen()})
 
@@ -1342,7 +1421,8 @@ def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str,
                                             "timing": timing})
 
                 if self.path == "/api/show":
-                    greeting, intro, goodbye = resolve_messages(body)
+                    greeting, intro, thank_you, goodbye = \
+                        resolve_messages(body, messages)
                     dance_key = (str(body.get("dance_key") or "")
                                  or config.get_show_dance() or None)
                     if not dance_key:
@@ -1383,6 +1463,7 @@ def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str,
                         unmute_after=bool(body.get("unmute_after", False)),
                         greeting=greeting,
                         intro=intro,
+                        thank_you=thank_you,
                         goodbye=goodbye,
                         dance_duration=dance_duration,
                         volume=volume,
@@ -1459,9 +1540,11 @@ def main() -> None:
     config = PanelConfig(CONFIG_FILE)
     library = LibraryWatcher(node, config, args.library_poll)
     library.start_polling()
+    messages = MessagesStore(MESSAGES_FILE)
 
     last_activity = [time.time()]
-    handler = make_handler(node, shows, args.pin, config, library, last_activity)
+    handler = make_handler(node, shows, args.pin, config, library, messages,
+                           last_activity)
 
     # systemd socket activation: inherit the already-listening socket (fd 3)
     # so the server only runs while someone is actually using the panel.

@@ -423,7 +423,8 @@
     <div class="inner">
       <div class="field">
         <label for="msgGroup">Message group — each group keeps its own full set
-          of messages (e.g. Show suite, Event)</label>
+          of messages (e.g. Show suite, Event). Stored on the connected
+          robot, so every device sees and edits the same texts.</label>
         <div class="row">
           <select id="msgGroup"></select>
           <button class="secondary" id="mgNew" title="Create a new group (copies the current messages)">＋ New</button>
@@ -446,6 +447,10 @@
       <div class="field">
         <label for="introMsg">Introduction (before the dance)</label>
         <textarea id="introMsg" placeholder="Blank = Cooper speaks its built-in introduction (from the show script)"></textarea>
+      </div>
+      <div class="field">
+        <label for="thankYouMsg">Thank you (after the dance)</label>
+        <textarea id="thankYouMsg" placeholder="Blank = Cooper speaks its built-in thank-you (from the show script)"></textarea>
       </div>
       <div class="field">
         <label for="goodbyeMsg">Goodbye</label>
@@ -591,7 +596,12 @@
           Cooper picks by its own clock at show time (morning before 12:00).
           Fill only one to use it all day.</li>
         <li><b>Introduction</b> — spoken after the welcome, before the dance.</li>
-        <li><b>Goodbye</b> — spoken at the end of the show.</li>
+        <li><b>Thank you</b> — spoken after the dance.</li>
+        <li><b>Goodbye</b> — spoken at the end, before the closing heart.</li>
+        <li><b>Stored on the connected robot</b> — groups live in a file on
+          the robot (one set per robot), so the iPad, the PC, and every
+          other device see and edit the same texts. Editing needs the
+          PIN.</li>
         <li><b>Blank fields = Cooper's built-in messages</b> — the texts kept
           in the show script (<code>x2_showroom_demo.py</code>) on the robot,
           which is the single source of truth. A filled field overrides only
@@ -717,7 +727,7 @@
 
   // Bumped on every change, in lockstep with SERVER_VERSION in
   // cooper_panel_server.py. Shown top-right; amber = page and API differ.
-  const PANEL_VERSION = "2026.09.13-14";
+  const PANEL_VERSION = "2026.09.13-15";
   $("verChip").textContent = "v" + PANEL_VERSION;
 
   function status(msg, cls = "") {
@@ -772,15 +782,20 @@
     greetAM: "",
     greetPM: "",
     introMsg: "",
+    thankYouMsg: "",
     goodbyeMsg: "",
   };
-  const MSG_FIELDS = ["guestName", "greetAM", "greetPM", "introMsg", "goodbyeMsg"];
+  const MSG_FIELDS = ["guestName", "greetAM", "greetPM", "introMsg",
+                      "thankYouMsg", "goodbyeMsg"];
 
-  // Message groups: named sets of all five texts (e.g. "Show suite", "Event").
-  // The fields always show the ACTIVE group; the show speaks whatever the
-  // fields hold, so switching groups switches the whole script.
+  // Message groups: named sets of all the texts (e.g. "Show suite", "Event").
+  // STORED ON THE CONNECTED ROBOT (cooper_messages.json) so every device
+  // reads and edits the same texts — browser copies used to drift and old
+  // defaults kept resurfacing. The show speaks the robot's ACTIVE group.
   let msgGroups = {};
   let activeGroup = "";
+  let msgsOnRobot = false;   // true once loaded from a /api/messages robot
+  let msgSaveTimer = null;
 
   const defaultMsgSet = () => {
     const set = {};
@@ -788,9 +803,24 @@
     return set;
   };
 
-  function saveMsgGroups() {
-    localStorage.setItem("cooper_msg_groups",
-      JSON.stringify({ groups: msgGroups, active: activeGroup }));
+  function saveMsgGroups(note) {
+    if (!msgsOnRobot) {
+      // Older API without /api/messages — keep the per-browser behavior.
+      localStorage.setItem("cooper_msg_groups",
+        JSON.stringify({ groups: msgGroups, active: activeGroup }));
+      if (note) status(note, "ok");
+      return;
+    }
+    clearTimeout(msgSaveTimer);   // debounced: one save per editing burst
+    msgSaveTimer = setTimeout(async () => {
+      try {
+        await api("/api/messages", { method: "POST",
+          body: JSON.stringify({ active: activeGroup, groups: msgGroups }) });
+        if (note) status(note, "ok");
+      } catch (e) {
+        status(`Saving messages on the robot failed: ${e.message}`, "err");
+      }
+    }, 400);
   }
 
   // Default texts from RETIRED page versions. Groups saved back then still
@@ -821,32 +851,60 @@
       }
     }
     if (purged) {
-      saveMsgGroups();
-      status(`${purged} outdated default message(s) cleared on this device — ` +
-        "Cooper speaks its built-in texts instead.", "ok");
+      status(`${purged} outdated default message(s) cleared — Cooper speaks ` +
+        "its built-in texts instead.", "ok");
     }
+    return purged;
   }
 
-  function loadMsgGroups() {
+  // This browser's saved groups — only used to seed a robot that has no
+  // stored messages yet, and as a fallback against an older API.
+  function readLocalGroups() {
     try {
       const s = JSON.parse(localStorage.getItem("cooper_msg_groups") || "null");
       if (s && s.groups && Object.keys(s.groups).length) {
-        msgGroups = s.groups;
-        activeGroup = s.active in s.groups ? s.active : Object.keys(s.groups)[0];
-        purgeLegacyDefaults();
-        return;
+        return { groups: s.groups,
+                 active: s.active in s.groups ? s.active
+                                              : Object.keys(s.groups)[0] };
       }
-    } catch {}
-    // First run: seed the two standard groups, migrating any texts saved by
-    // the previous single-set version into "Show suite".
-    const legacy = defaultMsgSet();
-    for (const id of MSG_FIELDS) {
-      const v = localStorage.getItem("cooper_" + id);
-      if (v !== null) { legacy[id] = v; localStorage.removeItem("cooper_" + id); }
+    } catch (e) {}
+    return null;
+  }
+
+  function seedLocalOrDefaults() {
+    const local = readLocalGroups();
+    msgGroups = local ? local.groups
+      : { "Show suite": defaultMsgSet(), "Event": defaultMsgSet() };
+    for (const g of Object.values(msgGroups))       // older sets lack new fields
+      for (const id of MSG_FIELDS) if (g[id] == null) g[id] = "";
+    activeGroup = local ? local.active : "Show suite";
+    purgeLegacyDefaults();
+  }
+
+  // Load the connected robot's message groups; migrate this browser's old
+  // copy to the robot the first time the robot has none stored.
+  async function fetchMessages() {
+    const robotName = activeRobot === "secondary" ? "secondary robot" : "primary robot";
+    try {
+      const data = await api("/api/messages");
+      if (data.groups && Object.keys(data.groups).length) {
+        msgGroups = data.groups;
+        activeGroup = data.active || Object.keys(data.groups)[0];
+        msgsOnRobot = true;
+        if (purgeLegacyDefaults()) saveMsgGroups();
+      } else {
+        seedLocalOrDefaults();
+        msgsOnRobot = true;
+        saveMsgGroups(`Messages are now stored on the ${robotName} — ` +
+          "every device shares them.");
+      }
+    } catch (e) {
+      // Older API without /api/messages — this browser's copy, as before.
+      msgsOnRobot = false;
+      seedLocalOrDefaults();
     }
-    msgGroups = { "Show suite": legacy, "Event": defaultMsgSet() };
-    activeGroup = "Show suite";
-    saveMsgGroups();
+    renderGroupSelect();
+    loadGroupToFields();
   }
 
   function renderGroupSelect() {
@@ -881,7 +939,9 @@
     }
   });
 
-  loadMsgGroups();
+  // Show this browser's copy until a robot answers; connect() then loads
+  // the robot's stored groups via fetchMessages().
+  seedLocalOrDefaults();
   renderGroupSelect();
   loadGroupToFields();
 
@@ -1188,7 +1248,7 @@
       $("settings").classList.remove("open");
       status("Connected to Cooper.", "ok");
       startPolling();
-      await Promise.all([refreshDances(), loadActions()]);
+      await Promise.all([refreshDances(), loadActions(), fetchMessages()]);
     } catch (e) {
       $("connDot").className = "dot off";
       $("connText").textContent = "offline";
@@ -1558,16 +1618,21 @@
   $("runShow").addEventListener("click", async () => {
     $("runShow").disabled = true;
     try {
+      // Texts come from the robot's stored ACTIVE message group — every
+      // device launches the show with the same messages. (An older API
+      // without the store falls back to this page's fields.)
+      const body = { unmute_after: $("unmuteAfter").checked };
+      if (!msgsOnRobot) {
+        body.name = $("guestName").value.trim();
+        body.greeting_am = $("greetAM").value.trim();
+        body.greeting_pm = $("greetPM").value.trim();
+        body.intro = $("introMsg").value.trim();
+        body.thank_you = $("thankYouMsg").value.trim();
+        body.goodbye = $("goodbyeMsg").value.trim();
+      }
       const data = await api("/api/show", {
         method: "POST",
-        body: JSON.stringify({
-          unmute_after: $("unmuteAfter").checked,
-          name: $("guestName").value.trim(),
-          greeting_am: $("greetAM").value.trim(),
-          greeting_pm: $("greetPM").value.trim(),
-          intro: $("introMsg").value.trim(),
-          goodbye: $("goodbyeMsg").value.trim(),
-        }),
+        body: JSON.stringify(body),
       });
       logDiag("Run show", data);
       status("Show started — Cooper is muted for the performance.", "ok");
