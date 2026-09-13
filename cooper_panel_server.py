@@ -67,7 +67,7 @@ LOGGER = logging.getLogger("cooper_panel")
 # Bumped on every change, in lockstep with PANEL_VERSION in
 # cooper_control_panel.html. The panel shows both and flags a mismatch,
 # so a half-deployed update is visible at a glance.
-SERVER_VERSION = "2026.09.13-6"
+SERVER_VERSION = "2026.09.13-7"
 
 # For the health report's uptime figure.
 SERVER_STARTED = time.time()
@@ -1236,6 +1236,15 @@ def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str,
                     greeting, intro, goodbye = resolve_messages(body)
                     dance_key = (str(body.get("dance_key") or "")
                                  or config.get_show_dance() or None)
+                    if not dance_key:
+                        # Never fall back to the show script's built-in dance
+                        # key: LinkCraft IDs differ per robot, so a key baked
+                        # in for one robot fails on another.
+                        return self._send_json(
+                            {"ok": False,
+                             "error": "no show dance configured on this robot "
+                                      "— pick one in ⚙ Settings (each robot "
+                                      "has its own LinkCraft IDs)"}, 400)
                     # Per-song play time from the shared config (None = default).
                     dance_duration = None
                     if dance_key:

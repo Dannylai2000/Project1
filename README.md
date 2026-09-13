@@ -64,10 +64,13 @@ Features:
   a show runs. IDs follow the AimDK preset-motion table (1001 raise,
   1002 wave, 1003 handshake, 1004 airkiss). ⚠️ Left-hand wave uses
   area 1 — verify the left-arm area id on the robot (right arm is 2).
-- **Show dance** — chosen once in ⚙ Settings (shared config
-  `show_dance`); ▶ Run full show and Play dance only use it, and the
-  Performance card displays the current choice. The main screen has no
-  dance selector.
+- **Show dance** — chosen in ⚙ Settings (config `show_dance`, stored on
+  the connected robot); ▶ Run full show and Play dance only use it, and
+  the Performance card displays the current choice. Settings also shows
+  the selected **LinkCraft ID** — every robot's LinkCraft library has
+  different IDs, so pick the show dance once per robot (primary and
+  secondary). A robot with no dance configured refuses to start the
+  show with a clear message instead of trying another robot's ID.
 - **Secondary (backup) robot** — ⚙ Settings holds a second X2's IP
   address and an Active robot selector; if the active robot fails, the
   red status bar offers "🤖 Use backup robot" to continue the
@@ -116,8 +119,10 @@ Features:
   occasion is one dropdown selection. Groups are saved in the browser.
   Cooper picks AM vs PM by its own clock at show time,
   and `{name}` in any message is replaced with the entered name (blank =
-  "everyone"). All texts are freely editable and saved in the browser;
-  blank fields fall back to the script's built-in lines.
+  "everyone"). **All fields are blank by default: blank = Cooper speaks
+  its built-in message from `x2_showroom_demo.py` on the robot** — the
+  single source of truth for default texts. Type in a field only to
+  override that one message for the group.
 - **Dance shortlist** — ⚙ Settings lists every song in Cooper's LinkCraft
   library with checkboxes; ticked songs are the only ones shown in the
   main dance list (none ticked = show every song). The shortlist is

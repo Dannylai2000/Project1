@@ -317,11 +317,14 @@
     </div>
     <div class="field">
       <label for="dances">Show dance — the song used by ▶ Run full show and
-        Play dance only (shared by all devices)</label>
+        Play dance only. Stored on the connected robot: every robot has its
+        own LinkCraft library with different IDs, so set this once per robot
+        (switch Active robot above, then pick here).</label>
       <div class="row">
         <select id="dances"><option value="">Connect to load songs…</option></select>
         <button class="secondary" id="refresh" title="Reload dance list">↻</button>
       </div>
+      <div class="hint" id="danceIdInfo" style="word-break:break-all">LinkCraft ID: —</div>
     </div>
     <div class="field">
       <label>Custom actions — label plus motion / area ids from the
@@ -430,27 +433,29 @@
       </div>
       <div class="field">
         <label for="greetAM">Welcome — morning (before 12:00)</label>
-        <textarea id="greetAM"></textarea>
+        <textarea id="greetAM" placeholder="Blank = Cooper speaks its built-in welcome (from the show script)"></textarea>
       </div>
       <div class="field">
         <label for="greetPM">Welcome — afternoon / evening</label>
-        <textarea id="greetPM"></textarea>
+        <textarea id="greetPM" placeholder="Blank = Cooper speaks its built-in welcome (from the show script)"></textarea>
       </div>
       <div class="field">
         <label for="introMsg">Introduction (before the dance)</label>
-        <textarea id="introMsg"></textarea>
+        <textarea id="introMsg" placeholder="Blank = Cooper speaks its built-in introduction (from the show script)"></textarea>
       </div>
       <div class="field">
         <label for="goodbyeMsg">Goodbye</label>
-        <textarea id="goodbyeMsg"></textarea>
+        <textarea id="goodbyeMsg" placeholder="Blank = Cooper speaks its built-in goodbye (from the show script)"></textarea>
       </div>
       <div class="hint">
-        Cooper picks the morning or afternoon welcome automatically at show
-        time. <code>{name}</code> anywhere in a message is replaced by the
-        name above. Edit the text freely — it is spoken exactly as written.
+        <b>Blank fields = Cooper's built-in messages</b> (the texts in
+        <code>x2_showroom_demo.py</code> on the robot) — type here only to
+        override one. Cooper picks the morning or afternoon welcome
+        automatically at show time. <code>{name}</code> anywhere in a
+        message is replaced by the name above.
       </div>
       <div class="row" style="margin-top:12px">
-        <button class="secondary" id="resetMsgs">Reset to default messages</button>
+        <button class="secondary" id="resetMsgs">Reset — blank all (use Cooper's built-in messages)</button>
       </div>
     </div>
   </details>
@@ -553,9 +558,13 @@
           introduction, dance, bow, clap, thank-you + heart, goodbye + blow
           kiss, goodbye wave. Buttons lock while a show is running.</li>
         <li><b>Show dance</b> — the song the show (and Play dance only)
-          uses is chosen once in ⚙ Settings → "Show dance" and shared by
-          all devices; the line under the buttons shows the current
-          choice.</li>
+          uses is chosen in ⚙ Settings → "Show dance"; the line under the
+          buttons shows the current choice. It is <b>stored on the
+          connected robot</b>, and each robot's LinkCraft library has its
+          own IDs (⚙ Settings shows the selected LinkCraft ID) — so set
+          the show dance once on the primary AND once on the secondary
+          robot. A robot with no dance set refuses to start the show with
+          a clear message instead of trying a wrong ID.</li>
         <li><b>Play dance only</b> — just the configured dance, nothing
           else. Does not touch the microphone.</li>
         <li><b>listen again after show</b> — tick to have Cooper resume
@@ -577,11 +586,14 @@
         <li><b>Welcome (morning / afternoon)</b> — two versions of the welcome;
           Cooper picks by its own clock at show time (morning before 12:00).
           Fill only one to use it all day.</li>
-        <li><b>Introduction</b> — spoken after the welcome, before the dance.
-          Note: the "2 meters distance" safety line lives here.</li>
+        <li><b>Introduction</b> — spoken after the welcome, before the dance.</li>
         <li><b>Goodbye</b> — spoken near the end, with the blow kiss.</li>
-        <li>Every field is spoken exactly as written; blank fields fall back to
-          the built-in lines. <b>Reset to default messages</b> restores all.</li>
+        <li><b>Blank fields = Cooper's built-in messages</b> — the texts kept
+          in the show script (<code>x2_showroom_demo.py</code>) on the robot,
+          which is the single source of truth. A filled field overrides only
+          that one message and is spoken exactly as written.
+          <b>Reset — blank all</b> returns the whole group to the built-in
+          messages.</li>
       </ul>
 
       <h3>Dance song shortlist (in ⚙ Settings)</h3>
@@ -701,7 +713,7 @@
 
   // Bumped on every change, in lockstep with SERVER_VERSION in
   // cooper_panel_server.py. Shown top-right; amber = page and API differ.
-  const PANEL_VERSION = "2026.09.13-6";
+  const PANEL_VERSION = "2026.09.13-7";
   $("verChip").textContent = "v" + PANEL_VERSION;
 
   function status(msg, cls = "") {
@@ -748,13 +760,15 @@
   }
 
   // ── personalized messages (saved in the browser) ───────────────────────
+  // Blank by default: a blank field is NOT sent to the show, so Cooper
+  // speaks the built-in text from x2_showroom_demo.py on the robot — the
+  // single source of truth for the default messages. Type here only to
+  // override a message for this group.
   const DEFAULT_MSGS = {
-    greetAM: "Good morning {name}! Welcome to One Comcentre. It is wonderful to see you today.",
-    greetPM: "Good afternoon {name}! Welcome to One Comcentre. It is wonderful to see you today.",
-    introMsg: "My name is Cooper. I may still be at training, but I am ready for the future. " +
-      "I can do many things and even help lead exercise sessions for you and your teams. " +
-      "I hope you enjoy the show!",
-    goodbyeMsg: "See you at One Com Center",
+    greetAM: "",
+    greetPM: "",
+    introMsg: "",
+    goodbyeMsg: "",
   };
   const MSG_FIELDS = ["guestName", "greetAM", "greetPM", "introMsg", "goodbyeMsg"];
 
@@ -817,7 +831,7 @@
     msgGroups[activeGroup] = defaultMsgSet();
     saveMsgGroups();
     loadGroupToFields();
-    status(`Group "${activeGroup}" reset to the default messages.`, "ok");
+    status(`Group "${activeGroup}" cleared — Cooper speaks its built-in messages.`, "ok");
   }
 
   document.addEventListener("input", e => {
@@ -1147,8 +1161,12 @@
 
   function updateDanceInfo() {
     const opt = [...$("dances").options].find(o => o.value === showDance);
+    const robotName = activeRobot === "secondary" ? "secondary robot" : "primary robot";
     $("danceInfo").textContent = "Show dance: " +
-      (showDance && opt ? opt.textContent : "— (set it in ⚙ Settings)");
+      (showDance && opt ? opt.textContent
+        : showDance ? showDance.slice(-16) + " (not in this robot's library!)"
+        : `— none set on the ${robotName} (pick one in ⚙ Settings)`);
+    $("danceIdInfo").textContent = "LinkCraft ID: " + (showDance || "—");
   }
 
   const danceLabel = d => (d.name !== d.key ? d.name : d.key.slice(-16));
