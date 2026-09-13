@@ -75,9 +75,12 @@ Features:
   performance on the other one. Both robots run the same panel server;
   each keeps its own shortlist/play-time config.
 - **Per-dance play time** — the seconds box beside each song in the
-  shortlist sets how long the full show waits during that dance
-  (**999 = play the full song**, blank = the measured song length or
-  33 s when unknown, 0 = don't wait). Stored on the robot
+  shortlist sets how long the full show waits during that dance: type
+  the song's length so it plays in full (blank = 33 s, 0 = don't
+  wait). 999 = full song via the measured audio length — works only on
+  builds where the resource's audio file is reachable on disk; on the
+  current robots the proxy keeps it in a private container, so type
+  the length instead. Stored on the robot
   (`dance_times` in `cooper_panel_config.json`), shared by all devices.
 - **Audio controls** — Microphone On / Off radios (mic mute via
   `SetMute`), Speaker On / Muted radios, and a **volume slider** (0–100,

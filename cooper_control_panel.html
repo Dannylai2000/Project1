@@ -332,9 +332,10 @@
     <div class="field">
       <label>Dance song shortlist — ticked songs appear in the dance list
         (none ticked = show every song). The seconds box sets each song's
-        play time in the full show: <b>999 = play the full song</b>,
-        blank = the measured song length (or 33 s when unknown),
-        0 = don't wait.</label>
+        play time in the full show: <b>type the song's length in seconds</b>
+        (e.g. 51). Blank = 33 s, 0 = don't wait. 999 = full song, but only
+        when the robot can measure the song's file — this robot can't, so
+        the panel will ask for the real length.</label>
       <div id="shortlist"><span class="empty">Connect to Cooper to load the song library.</span></div>
       <div class="row" style="margin-top:8px">
         <button class="secondary" id="slAll">Tick all</button>
@@ -599,11 +600,12 @@
       "✨ new dance songs" banner appears — press <b>Review</b>, tick the ones
       you want, then <b>Mark NEW as seen</b> to clear the alert everywhere.
       The <b>seconds box</b> next to each song sets how long the full show
-      waits while that dance plays: <b>999 = play the full song</b>, blank =
-      the measured song length (33 seconds when it can't be measured), a
-      number = that many seconds, and <b>0 = don't wait at all</b> (the show
-      moves straight on). Play times are shared by all devices, like the
-      shortlist.</p>
+      waits while that dance plays — <b>type the song's length</b> so it
+      plays in full. Blank = 33 seconds, <b>0 = don't wait at all</b> (the
+      show moves straight on). 999 asks for the full song, which works only
+      when the robot can measure the song's audio file (on builds where the
+      file is reachable); otherwise the panel asks for the real length.
+      Play times are shared by all devices, like the shortlist.</p>
 
       <h3>Performance diagnostics (in ⚙ Settings)</h3>
       <p>For checking how fast Cooper responds. When on, each button press logs
@@ -709,7 +711,7 @@
 
   // Bumped on every change, in lockstep with SERVER_VERSION in
   // cooper_panel_server.py. Shown top-right; amber = page and API differ.
-  const PANEL_VERSION = "2026.09.13-18";
+  const PANEL_VERSION = "2026.09.13-19";
   $("verChip").textContent = "v" + PANEL_VERSION;
 
   function status(msg, cls = "") {
