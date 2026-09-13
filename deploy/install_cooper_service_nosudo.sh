@@ -110,7 +110,18 @@ else
     exit 1
   }
   CRON_LINE="@reboot /bin/bash $APP_DIR/deploy/run_cooper_panel.sh >> \$HOME/cooper-panel.log 2>&1"
-  ( crontab -l 2>/dev/null | grep -v "run_cooper_panel.sh" ; echo "$CRON_LINE" ) | crontab -
+  # Build the new crontab in a temp file. Every step tolerates "no crontab
+  # yet" and "no other lines" — with set -e, a bare pipeline here used to
+  # kill the whole script on machines that never had a crontab.
+  TMP_CRON="$(mktemp)"
+  ( crontab -l 2>/dev/null || true ) | grep -v "run_cooper_panel.sh" > "$TMP_CRON" || true
+  echo "$CRON_LINE" >> "$TMP_CRON"
+  crontab "$TMP_CRON"
+  rm -f "$TMP_CRON"
+  crontab -l | grep -q "run_cooper_panel.sh" || {
+    echo "ERROR: cron entry did not stick — check 'crontab -l'." >&2
+    exit 1
+  }
   echo "Cron entry installed. Starting the API now..."
   if ! pgrep -f "cooper_panel_server.py --port $PORT" >/dev/null 2>&1; then
     nohup /bin/bash "$APP_DIR/deploy/run_cooper_panel.sh" >> "$HOME/cooper-panel.log" 2>&1 &
