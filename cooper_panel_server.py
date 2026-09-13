@@ -67,7 +67,7 @@ LOGGER = logging.getLogger("cooper_panel")
 # Bumped on every change, in lockstep with PANEL_VERSION in
 # cooper_control_panel.html. The panel shows both and flags a mismatch,
 # so a half-deployed update is visible at a glance.
-SERVER_VERSION = "2026.09.13-8"
+SERVER_VERSION = "2026.09.13-9"
 
 # For the health report's uptime figure.
 SERVER_STARTED = time.time()
@@ -207,6 +207,8 @@ class CooperPanelNode(Node):
         self._mic_external = int(mic_external)
         # True after a manual "Gear up for performance" (external mic active).
         self.mic_geared = False
+        # Last VERIFIED mic source id (GetMicSourceRequest); None = unknown.
+        self.mic_source_state: int | None = None
         self._cbg = MutuallyExclusiveCallbackGroup()
         self._lock = threading.Lock()
 
@@ -337,69 +339,169 @@ class CooperPanelNode(Node):
             raise RuntimeError(f"dance rejected (code={code}): {msg}")
         return {"code": code, "message": msg, "timing": timing}
 
-    def _call_mic_source(self, target: int) -> bool:
-        """Switch Cooper's mic stream to `target` (1 = built-in, 2 = external).
-
-        Resolves the service type at runtime and auto-detects the request's
-        source field. Returns True when the service accepted the switch.
-        Callers handle volume/announcement silencing themselves.
-        """
-        if not self._mic_source_service or get_service is None:
-            return False
+    def _resolve_service(self, name: str):
+        """(srv_type, ready client) for a service in the graph, or None."""
+        if not name or get_service is None:
+            return None
         srv_type = None
-        for name, types in self.get_service_names_and_types():
-            if name == self._mic_source_service and types:
-                srv_type = get_service(types[0])
+        for svc, types in self.get_service_names_and_types():
+            if svc == name and types:
+                with suppress(Exception):
+                    srv_type = get_service(types[0])
                 break
         if srv_type is None:
-            LOGGER.warning("Mic-source service %s not found",
-                           self._mic_source_service)
-            return False
-        client = self.create_client(srv_type, self._mic_source_service,
-                                    callback_group=self._cbg)
+            return None
+        client = self.create_client(srv_type, name, callback_group=self._cbg)
         if not client.wait_for_service(timeout_sec=2.0):
-            LOGGER.warning("Mic-source service not responding")
-            return False
+            return None
+        return srv_type, client
 
-        req = srv_type.Request()
-        self._stamp(req)
-        fields = {}
-        with suppress(Exception):
-            fields = dict(req.get_fields_and_field_types())
-        applied = None
-        for cand in ("audio_stream_id", "mic_source", "source", "stream_id",
-                     "audio_source", "channel", "type", "value", "id"):
-            if cand in fields:
-                with suppress(Exception):
-                    setattr(req, cand, int(target))
-                    applied = cand
-                    break
-        if applied is None:
-            for fname, ftype in fields.items():
-                if any(k in fname.lower() for k in ("source", "stream", "mic")) \
-                        and "int" in ftype:
-                    with suppress(Exception):
-                        setattr(req, fname, int(target))
-                        applied = fname
-                        break
-        if applied is None:
-            LOGGER.warning("No usable source field on %s request; fields: %s",
-                           self._mic_source_service, fields)
-            return False
-
-        response = None
+    def _call_service(self, client, req):
+        """Call with retries; the response, or None on timeout."""
         for _ in range(8):
             future = client.call_async(req)
             done = threading.Event()
             future.add_done_callback(lambda _: done.set())
             if done.wait(0.5) and future.done():
-                response = future.result()
-                break
+                return future.result()
+        return None
+
+    @staticmethod
+    def _apply_source_field(holder, value: int) -> str | None:
+        """Set the mic-source id on a message; the field name used, or None."""
+        fields = {}
+        with suppress(Exception):
+            fields = dict(holder.get_fields_and_field_types())
+        for cand in ("audio_stream_id", "mic_source", "source", "stream_id",
+                     "audio_source", "channel", "type", "value", "id"):
+            if cand in fields:
+                with suppress(Exception):
+                    setattr(holder, cand, int(value))
+                    return cand
+        for fname, ftype in fields.items():
+            if any(k in fname.lower() for k in ("source", "stream", "mic")) \
+                    and "int" in ftype:
+                with suppress(Exception):
+                    setattr(holder, fname, int(value))
+                    return fname
+        return None
+
+    @staticmethod
+    def _read_source_field(msg) -> int | None:
+        """Dig the current mic-source id out of a response (nested too)."""
+        holders = [msg]
+        with suppress(Exception):
+            for fname in msg.get_fields_and_field_types():
+                sub = getattr(msg, fname, None)
+                if hasattr(sub, "get_fields_and_field_types"):
+                    holders.append(sub)
+        for holder in holders:
+            fields = {}
+            with suppress(Exception):
+                fields = dict(holder.get_fields_and_field_types())
+            for cand in ("audio_stream_id", "mic_source", "source",
+                         "stream_id", "audio_source"):
+                if cand in fields:
+                    v = getattr(holder, cand, None)
+                    if isinstance(v, int) and not isinstance(v, bool):
+                        return v
+            for fname, ftype in fields.items():
+                if any(k in fname.lower() for k in ("source", "stream", "mic")) \
+                        and "int" in ftype:
+                    v = getattr(holder, fname, None)
+                    if isinstance(v, int) and not isinstance(v, bool):
+                        return v
+        return None
+
+    def _get_mic_source(self) -> int | None:
+        """Ask the robot which mic is REALLY active (GetMicSourceRequest)."""
+        name = ""
+        if "SetMicSource" in self._mic_source_service:
+            name = self._mic_source_service.replace("SetMicSource", "GetMicSource")
+        resolved = self._resolve_service(name)
+        if resolved is None:
+            return None
+        srv_type, client = resolved
+        req = srv_type.Request()
+        self._stamp(req)
+        response = self._call_service(client, req)
         if response is None:
-            LOGGER.warning("Mic-source switch timed out")
+            return None
+        source = self._read_source_field(response)
+        if source is not None:
+            self.mic_source_state = source
+        return source
+
+    def _call_mic_source(self, target: int) -> bool:
+        """Switch Cooper's mic stream to `target` (1 = built-in, 2 = external)
+        and VERIFY the robot really changed.
+
+        The native app showed the switch not applying even though the service
+        answered, so success now means: response received, no error flagged in
+        it, and (when GetMicSourceRequest is available) a read-back confirming
+        the new source. One automatic retry on a failed verification.
+        """
+        resolved = self._resolve_service(self._mic_source_service)
+        if resolved is None:
+            LOGGER.warning("Mic-source service %s not found / not responding",
+                           self._mic_source_service)
             return False
-        LOGGER.info("Mic source switched (%s=%d)", applied, int(target))
-        return True
+        srv_type, client = resolved
+
+        for attempt in (1, 2):
+            req = srv_type.Request()
+            self._stamp(req)
+            applied = self._apply_source_field(req, target)
+            if applied is None:
+                # The id may live one level down (nested sub-message).
+                with suppress(Exception):
+                    for fname in req.get_fields_and_field_types():
+                        sub = getattr(req, fname, None)
+                        if hasattr(sub, "get_fields_and_field_types"):
+                            inner = self._apply_source_field(sub, target)
+                            if inner:
+                                applied = f"{fname}.{inner}"
+                                break
+            if applied is None:
+                LOGGER.warning("No usable source field on %s request",
+                               self._mic_source_service)
+                return False
+
+            response = self._call_service(client, req)
+            if response is None:
+                LOGGER.warning("Mic-source switch timed out (attempt %d)", attempt)
+                continue
+            LOGGER.info("Mic-source switch attempt %d: %s=%d, response=%r",
+                        attempt, applied, int(target), response)
+
+            # An error flagged in the response = not applied.
+            flagged = False
+            with suppress(Exception):
+                for fname, ftype in response.get_fields_and_field_types().items():
+                    v = getattr(response, fname, None)
+                    if fname == "success" and v is False:
+                        flagged = True
+                    if "err" in fname.lower() and isinstance(v, int) \
+                            and not isinstance(v, bool) and v != 0:
+                        flagged = True
+            if flagged:
+                LOGGER.warning("Mic-source switch rejected by the robot: %r",
+                               response)
+                continue
+
+            time.sleep(0.5)  # let the switch settle before reading back
+            actual = self._get_mic_source()
+            if actual is None:
+                # No Get service to verify with — trust the response.
+                self.mic_source_state = int(target)
+                return True
+            if actual == int(target):
+                LOGGER.info("Mic source verified: %d", actual)
+                return True
+            LOGGER.warning("Mic source did NOT change: wanted %d, robot "
+                           "reports %d (attempt %d)", int(target), actual,
+                           attempt)
+        return False
 
     def _normalize_mic_source(self) -> None:
         """Silently switch back to the built-in mic before enabling listening.
@@ -441,8 +543,14 @@ class CooperPanelNode(Node):
         target = self._mic_external if external else self._mic_internal
         try:
             if not self._call_mic_source(target):
-                raise RuntimeError("mic-source switch failed — see the "
-                                   "server journal on Cooper")
+                actual = self.mic_source_state
+                detail = ""
+                if actual is not None and actual != target:
+                    detail = (" — the robot still reports the "
+                              + ("external" if actual == self._mic_external
+                                 else "in-built") + " mic")
+                raise RuntimeError("mic-source switch did not apply"
+                                   + detail + " (details in Cooper's journal)")
             time.sleep(max(0.0, settle_s))
         finally:
             with suppress(Exception):
@@ -1093,6 +1201,7 @@ def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str,
                     "speaker": node.speaker_state,
                     "volume": node.volume_state,
                     "mic_geared": node.mic_geared,
+                    "mic_source": node.mic_source_state,
                     "show_running": shows.running(),
                     "pin_required": bool(pin),
                     "library_size": library_size,
