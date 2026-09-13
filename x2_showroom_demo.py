@@ -7,7 +7,7 @@ Runs a fixed sequence once on startup:
   3. LinkCraft dance (APT 32s) — starts immediately, resource already cached
   4. Bow, Clap
   5. Thank you (spoken WHILE making the heart gesture)
-  6. Goodbye (spoken WHILE blowing a kiss and waving)
+  6. Goodbye (spoken, no gesture)
 
 The microphone stays muted after the show so the robot does not react to
 surrounding conversation. Pass --unmute-after to restore listening when
@@ -749,11 +749,9 @@ class IntroSequenceNode(Node):
                 ),
             )
 
-            # Goodbye speech overlaps the blow kiss; wave follows right after.
-            self.get_logger().info("=== STEP 5: GOODBYE + BLOW KISS ===")
+            self.get_logger().info("=== STEP 5: GOODBYE ===")
             self._speak(
                 self._goodbye_text,
-                during=lambda: self._run_preset_motion(1004, 2, 0.0),
                 mark="goodbye_speech",
             )
 
