@@ -7,7 +7,10 @@
 #
 # PIN and port come from deploy/.panel_env (written by the installer) or the
 # COOPER_PANEL_PIN / COOPER_PANEL_PORT environment variables.
-set -u
+#
+# No "set -u" here: ROS's own setup.bash references unset variables
+# (e.g. AMENT_TRACE_SETUP_FILES), which under nounset kills this script
+# at the source line — the API then never starts from cron/@reboot.
 
 APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$APP_DIR" || exit 1
