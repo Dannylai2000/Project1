@@ -713,7 +713,7 @@
 
   // Bumped on every change, in lockstep with SERVER_VERSION in
   // cooper_panel_server.py. Shown top-right; amber = page and API differ.
-  const PANEL_VERSION = "2026.09.13-8";
+  const PANEL_VERSION = "2026.09.13-9";
   $("verChip").textContent = "v" + PANEL_VERSION;
 
   function status(msg, cls = "") {
@@ -1078,7 +1078,15 @@
       $("gearUp").disabled = $("gearDown").disabled = showRunning;
       $("gearUp").checked = s.mic_geared;
       $("gearDown").checked = !s.mic_geared;
-      $("gearState").textContent = s.mic_geared ? "geared up" : "normal";
+      // mic_source is the last VERIFIED source read back from the robot
+      // (2 = external, 1 = in-built); flag a robot that disagrees.
+      let gtxt = s.mic_geared ? "geared up" : "normal";
+      if (s.mic_source === 1 || s.mic_source === 2) {
+        gtxt += s.mic_source === 2 ? " · robot: external MIC"
+                                   : " · robot: in-built MIC";
+        if ((s.mic_source === 2) !== s.mic_geared) gtxt = "⚠ " + gtxt;
+      }
+      $("gearState").textContent = gtxt;
     } else if (!gearing) {
       $("gearUp").disabled = $("gearDown").disabled = true;
       $("gearUp").checked = $("gearDown").checked = false;
