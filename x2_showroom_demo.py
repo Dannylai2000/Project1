@@ -6,8 +6,9 @@ Runs a fixed sequence once on startup:
   2. Self-introduction (dance resource is prefetched in the background)
   3. LinkCraft dance (APT 32s) — starts immediately, resource already cached
   4. Bow, Clap
-  5. Thank you (spoken WHILE making the heart gesture)
-  6. Goodbye (spoken, no gesture)
+  5. Thank you (spoken)
+  6. Goodbye (spoken)
+  7. Both-hands heart — the closing pose, held before the end steps
 
 The microphone stays muted after the show so the robot does not react to
 surrounding conversation. Pass --unmute-after to restore listening when
@@ -94,7 +95,7 @@ DANCE_DURATION_S   = 33.0
 # Heart gesture (both hands): motion=1007, area=3
 FINAL_MOTION_ID     = 1007
 FINAL_AREA_ID       = 3
-FINAL_MOTION_WAIT_S = 1.0
+FINAL_MOTION_WAIT_S = 3.0   # hold the closing heart before the end steps
 
 # ── Sequence texts ────────────────────────────────────────────────────────────
 GREETING_TEXT  = "Thank You Caden for remembering me! Hello everyone! It is wonderful to be here with you today."
@@ -739,20 +740,21 @@ class IntroSequenceNode(Node):
             self._play_emoji("dance")
             self._run_linkcraft_action(self._dance_key, self._dance_duration_s)
 
-            # Thank-you speech and heart gesture play together.
-            self.get_logger().info("=== STEP 4: THANK YOU + HEART ===")
+            self.get_logger().info("=== STEP 4: THANK YOU ===")
             self._play_emoji("closing")
-            self._speak(
-                THANK_YOU_TEXT,
-                during=lambda: self._run_preset_motion(
-                    FINAL_MOTION_ID, FINAL_AREA_ID, 0.0
-                ),
-            )
+            self._speak(THANK_YOU_TEXT)
 
             self.get_logger().info("=== STEP 5: GOODBYE ===")
             self._speak(
                 self._goodbye_text,
                 mark="goodbye_speech",
+            )
+
+            # Closing pose: the both-hands heart AFTER the goodbye, held so
+            # the motion finishes before the end-of-show mic switching.
+            self.get_logger().info("=== STEP 6: BOTH-HANDS HEART ===")
+            self._run_preset_motion(
+                FINAL_MOTION_ID, FINAL_AREA_ID, FINAL_MOTION_WAIT_S
             )
 
 

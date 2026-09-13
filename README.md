@@ -16,8 +16,8 @@ original script:
 - **No pause before the dance**: the LinkCraft dance resource is prefetched
   in a background thread during the greeting, so step 3 only sends the
   execute request.
-- **Faster ending**: the thank-you speech overlaps the heart gesture;
-  the goodbye is spoken with no gesture.
+- **Ending**: thank-you, then the goodbye, then the both-hands heart as
+  the closing pose (held ~3 s before the end-of-show mic switching).
 - **Face emoji**: the eye open/close (blink) expression is played on
   Cooper's face at each show phase — welcome, dance, and closing — via
   the AimDK `PlayEmoji` service. Fire-and-forget: a missing service only
