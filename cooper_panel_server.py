@@ -67,7 +67,7 @@ LOGGER = logging.getLogger("cooper_panel")
 # Bumped on every change, in lockstep with PANEL_VERSION in
 # cooper_control_panel.html. The panel shows both and flags a mismatch,
 # so a half-deployed update is visible at a glance.
-SERVER_VERSION = "2026.09.12-6"
+SERVER_VERSION = "2026.09.13-1"
 
 DEFAULT_GET_RESOURCES_SVC  = "/aimdk_5Fmsgs/srv/GetRobotResources"
 DEFAULT_EXECUTE_ACTION_SVC = "/aimdk_5Fmsgs/srv/ExecuteActionResource"
@@ -271,7 +271,14 @@ class CooperPanelNode(Node):
                     self._resource_fields_logged = True
                     LOGGER.info("LinkCraft resource fields for %s: %s",
                                 key, describe_message_fields(r))
-                name = resource_display_name(r, key)
+                # On this SDK build the LinkCraft song name (e.g. 太极) is
+                # current_version.name — confirmed from the journal dump.
+                # Fall back to the generic search on builds shaped otherwise.
+                name = ""
+                with suppress(Exception):
+                    name = str(r.current_version.name).strip()
+                if not name or name == key:
+                    name = resource_display_name(r, key)
                 version = ""
                 with suppress(Exception):
                     version = str(r.current_version.version)
