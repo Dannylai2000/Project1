@@ -67,7 +67,7 @@ LOGGER = logging.getLogger("cooper_panel")
 # Bumped on every change, in lockstep with PANEL_VERSION in
 # cooper_control_panel.html. The panel shows both and flags a mismatch,
 # so a half-deployed update is visible at a glance.
-SERVER_VERSION = "2026.09.13-4"
+SERVER_VERSION = "2026.09.13-5"
 
 # For the health report's uptime figure.
 SERVER_STARTED = time.time()
@@ -198,11 +198,15 @@ class CooperPanelNode(Node):
     """ROS2 side of the panel: talks to the AimDK services."""
 
     def __init__(self, mute_service: str, speaker_volume: int = 70,
-                 mic_source_service: str = "", mic_internal: int = 1) -> None:
+                 mic_source_service: str = "", mic_internal: int = 1,
+                 mic_external: int = 2) -> None:
         super().__init__("cooper_panel")
         self._speaker_volume = max(1, min(100, int(speaker_volume)))
         self._mic_source_service = mic_source_service
         self._mic_internal = int(mic_internal)
+        self._mic_external = int(mic_external)
+        # True after a manual "Gear up for performance" (external mic active).
+        self.mic_geared = False
         self._cbg = MutuallyExclusiveCallbackGroup()
         self._lock = threading.Lock()
 
@@ -333,73 +337,85 @@ class CooperPanelNode(Node):
             raise RuntimeError(f"dance rejected (code={code}): {msg}")
         return {"code": code, "message": msg, "timing": timing}
 
+    def _call_mic_source(self, target: int) -> bool:
+        """Switch Cooper's mic stream to `target` (1 = built-in, 2 = external).
+
+        Resolves the service type at runtime and auto-detects the request's
+        source field. Returns True when the service accepted the switch.
+        Callers handle volume/announcement silencing themselves.
+        """
+        if not self._mic_source_service or get_service is None:
+            return False
+        srv_type = None
+        for name, types in self.get_service_names_and_types():
+            if name == self._mic_source_service and types:
+                srv_type = get_service(types[0])
+                break
+        if srv_type is None:
+            LOGGER.warning("Mic-source service %s not found",
+                           self._mic_source_service)
+            return False
+        client = self.create_client(srv_type, self._mic_source_service,
+                                    callback_group=self._cbg)
+        if not client.wait_for_service(timeout_sec=2.0):
+            LOGGER.warning("Mic-source service not responding")
+            return False
+
+        req = srv_type.Request()
+        self._stamp(req)
+        fields = {}
+        with suppress(Exception):
+            fields = dict(req.get_fields_and_field_types())
+        applied = None
+        for cand in ("audio_stream_id", "mic_source", "source", "stream_id",
+                     "audio_source", "channel", "type", "value", "id"):
+            if cand in fields:
+                with suppress(Exception):
+                    setattr(req, cand, int(target))
+                    applied = cand
+                    break
+        if applied is None:
+            for fname, ftype in fields.items():
+                if any(k in fname.lower() for k in ("source", "stream", "mic")) \
+                        and "int" in ftype:
+                    with suppress(Exception):
+                        setattr(req, fname, int(target))
+                        applied = fname
+                        break
+        if applied is None:
+            LOGGER.warning("No usable source field on %s request; fields: %s",
+                           self._mic_source_service, fields)
+            return False
+
+        response = None
+        for _ in range(8):
+            future = client.call_async(req)
+            done = threading.Event()
+            future.add_done_callback(lambda _: done.set())
+            if done.wait(0.5) and future.done():
+                response = future.result()
+                break
+        if response is None:
+            LOGGER.warning("Mic-source switch timed out")
+            return False
+        LOGGER.info("Mic source switched (%s=%d)", applied, int(target))
+        return True
+
     def _normalize_mic_source(self) -> None:
         """Silently switch back to the built-in mic before enabling listening.
 
-        A show leaves the external (idle) mic selected; unmuting on it would
-        leave the assistant deaf. The switch is done at volume 0 so the
-        robot's own switch announcement is not heard. Best-effort — any
-        failure is logged and the unmute proceeds regardless.
+        A show or a gear-up leaves the external (idle) mic selected; unmuting
+        on it would leave the assistant deaf. The switch is done at volume 0
+        so the robot's own switch announcement is not heard. Best-effort —
+        any failure is logged and the unmute proceeds regardless.
         """
         if not self._mic_source_service or get_service is None:
             return
         try:
-            srv_type = None
-            for name, types in self.get_service_names_and_types():
-                if name == self._mic_source_service and types:
-                    srv_type = get_service(types[0])
-                    break
-            if srv_type is None:
-                LOGGER.warning("Mic-source service %s not found — skipping "
-                               "mic normalization", self._mic_source_service)
-                return
-            client = self.create_client(srv_type, self._mic_source_service,
-                                        callback_group=self._cbg)
-            if not client.wait_for_service(timeout_sec=2.0):
-                LOGGER.warning("Mic-source service not responding — skipping")
-                return
-
-            req = srv_type.Request()
-            self._stamp(req)
-            fields = {}
-            with suppress(Exception):
-                fields = dict(req.get_fields_and_field_types())
-            applied = None
-            for cand in ("audio_stream_id", "mic_source", "source", "stream_id",
-                         "audio_source", "channel", "type", "value", "id"):
-                if cand in fields:
-                    with suppress(Exception):
-                        setattr(req, cand, self._mic_internal)
-                        applied = cand
-                        break
-            if applied is None:
-                for fname, ftype in fields.items():
-                    if any(k in fname.lower() for k in ("source", "stream", "mic")) \
-                            and "int" in ftype:
-                        with suppress(Exception):
-                            setattr(req, fname, self._mic_internal)
-                            applied = fname
-                            break
-            if applied is None:
-                LOGGER.warning("No usable source field on %s request; fields: %s",
-                               self._mic_source_service, fields)
-                return
-
             with suppress(Exception):
                 self._send_volume(0)  # silence the switch announcement
-            response = None
-            for _ in range(8):
-                future = client.call_async(req)
-                done = threading.Event()
-                future.add_done_callback(lambda _: done.set())
-                if done.wait(0.5) and future.done():
-                    response = future.result()
-                    break
-            if response is None:
-                LOGGER.warning("Mic normalization timed out")
-            else:
-                LOGGER.info("Mic source normalized to built-in (%s=%d)",
-                            applied, self._mic_internal)
+            if self._call_mic_source(self._mic_internal):
+                self.mic_geared = False
         except Exception:
             LOGGER.exception("Mic normalization failed")
         finally:
@@ -407,6 +423,35 @@ class CooperPanelNode(Node):
                 self._send_volume(self._speaker_volume)
                 self.volume_state = self._speaker_volume
                 self.speaker_state = True
+
+    def gear_up(self, external: bool, settle_s: float = 5.0) -> dict:
+        """Manual performance prep (the panel's Gear-up radio).
+
+        Gear up (external=True): volume 0 → switch to the external mic →
+        wait `settle_s` → volume back to the show level. Cooper is then
+        ready to perform with sound and effectively deaf to the audience.
+        Normal (external=False): the same sequence back to the built-in mic.
+        """
+        if not self._mic_source_service or get_service is None:
+            raise RuntimeError("mic-source service not configured on this build")
+        timing: dict = {}
+        t0 = time.perf_counter()
+        with suppress(Exception):
+            self._send_volume(0)  # silence the switch announcement
+        target = self._mic_external if external else self._mic_internal
+        try:
+            if not self._call_mic_source(target):
+                raise RuntimeError("mic-source switch failed — see the "
+                                   "server journal on Cooper")
+            time.sleep(max(0.0, settle_s))
+        finally:
+            with suppress(Exception):
+                self._send_volume(self._speaker_volume)
+                self.volume_state = self._speaker_volume
+                self.speaker_state = True
+        self.mic_geared = bool(external)
+        timing["gear_ms"] = round((time.perf_counter() - t0) * 1000, 1)
+        return timing
 
     def set_listening(self, listen: bool) -> dict:
         """Unmute (listen=True) or mute (listen=False) Cooper's microphones.
@@ -527,6 +572,7 @@ class ShowRunner:
         goodbye: str | None = None,
         dance_duration: float | None = None,
         volume: int | None = None,
+        geared: bool = False,
     ) -> dict:
         t0 = time.perf_counter()
         with self._lock:
@@ -548,6 +594,11 @@ class ShowRunner:
             if volume is not None:
                 cmd += ["--volume", str(int(volume))]
             cmd += self._extra_args
+            if geared:
+                # Cooper was geared up manually: already on the external mic
+                # with the speaker up. The show skips its own mute/mic-switch
+                # sequence entirely (the later flags override _extra_args).
+                cmd += ["--no-mute", "--mic-source-service", ""]
             cmd += ["--timing-file", str(TIMING_FILE)]
             with suppress(OSError):
                 TIMING_FILE.unlink()
@@ -556,12 +607,14 @@ class ShowRunner:
             self._proc = subprocess.Popen(cmd)
             proc = self._proc
 
-        # The show's first step mutes the microphones.
-        self._node.listening_state = False
+        # The show's first step mutes the microphones — unless Cooper was
+        # geared up manually, in which case the show leaves the mic alone.
+        if not geared:
+            self._node.listening_state = False
 
         def watch() -> None:
             proc.wait()
-            if unmute_after:
+            if unmute_after and not geared:
                 self._node.listening_state = True
             LOGGER.info("Show finished (exit code %s)", proc.returncode)
 
@@ -1039,6 +1092,7 @@ def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str,
                     "listening": node.listening_state,
                     "speaker": node.speaker_state,
                     "volume": node.volume_state,
+                    "mic_geared": node.mic_geared,
                     "show_running": shows.running(),
                     "pin_required": bool(pin),
                     "library_size": library_size,
@@ -1095,6 +1149,18 @@ def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str,
                     timing = result.pop("timing", {})
                     timing["server_total_ms"] = server_ms()
                     return self._send_json({"ok": True, **result, "timing": timing})
+
+                if self.path == "/api/gear_up":
+                    if shows.running():
+                        return self._send_json(
+                            {"ok": False,
+                             "error": "a show is running — wait for it to finish"}, 409)
+                    external = bool(body.get("external", True))
+                    timing = node.gear_up(external)
+                    timing["server_total_ms"] = server_ms()
+                    return self._send_json({"ok": True, "mic_geared": node.mic_geared,
+                                            "volume": node.volume_state,
+                                            "timing": timing})
 
                 if self.path == "/api/listening":
                     if "listen" not in body:
@@ -1188,6 +1254,7 @@ def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str,
                         goodbye=goodbye,
                         dance_duration=dance_duration,
                         volume=volume,
+                        geared=node.mic_geared,
                     )
                     if volume >= 0:
                         node.speaker_state = True
@@ -1243,7 +1310,8 @@ def main() -> None:
     node = CooperPanelNode(mute_service=args.mute_service,
                            speaker_volume=args.speaker_volume,
                            mic_source_service=args.mic_source_service,
-                           mic_internal=args.mic_internal)
+                           mic_internal=args.mic_internal,
+                           mic_external=args.mic_external)
     executor = MultiThreadedExecutor()
     executor.add_node(node)
     spin_thread = threading.Thread(target=executor.spin, name="ros-spin", daemon=True)
