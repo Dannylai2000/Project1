@@ -46,6 +46,10 @@ Features:
   server is **Online** (green) or **OFFLINE** (red). While offline all
   control buttons are disabled, and switching setups in ⚙ Settings
   re-checks the new address immediately.
+- **Architecture & API reference** — see **`API.md`** for the full
+  picture: how the iPad talks to the page on optimus, the page to the
+  robot's API middleware, and the middleware to the AgiBot AimDK
+  (ROS2) SDK, plus every REST endpoint with request/response shapes.
 - **❓ Help** — a button in the header opens a built-in user guide
   explaining the purpose and usage of every field: connection setups,
   IP/PIN, listening, show controls, message fields, the shortlist,
