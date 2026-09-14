@@ -481,7 +481,10 @@
       online it runs a full health check on Cooper (robot services, start
       after reboot, files, PIN); when offline it tells apart "Cooper is
       unreachable" from "Cooper is up but the API socket is not armed" and
-      shows the exact commands to fix it, ready to copy.</p>
+      shows the exact commands to fix it, ready to copy. The modal also has
+      <b>♻ Restart API</b> and <b>⬆ Update &amp; restart</b> (git pull on
+      the robot) buttons — routine maintenance with no SSH: the robot's
+      watchdog revives the API by itself after either action.</p>
       <p>At the far right, the small <b>version tag</b> (e.g. v2026.09.12-1)
       identifies this page's build; if it turns <b>amber</b> showing
       "page ≠ API", the webpage on optimus and the server on Cooper are on
@@ -668,6 +671,8 @@
       <div id="diagResults"></div>
       <div class="row" style="margin-top:12px">
         <button id="diagRerun" class="hbtn">🔄 Run again</button>
+        <button id="diagRestart" class="hbtn" title="Restart the control API on the robot — it comes back by itself within seconds">♻ Restart API</button>
+        <button id="diagUpdate" class="hbtn" title="git pull on the robot, then restart — deploys the latest code with no SSH">⬆ Update &amp; restart</button>
       </div>
     </div>
   </div>
@@ -711,7 +716,7 @@
 
   // Bumped on every change, in lockstep with SERVER_VERSION in
   // cooper_panel_server.py. Shown top-right; amber = page and API differ.
-  const PANEL_VERSION = "2026.09.13-19";
+  const PANEL_VERSION = "2026.09.14-1";
   $("verChip").textContent = "v" + PANEL_VERSION;
 
   function status(msg, cls = "") {
@@ -1752,6 +1757,41 @@
       renderOfflineDiag(performance.now() - t0, timedOut);
     }
   }
+
+  // Remote maintenance from the Diagnose modal — no SSH needed. The API
+  // exits and the robot's watchdog/socket revives it with the code on disk.
+  async function apiMaintenance(path, label) {
+    const box = $("diagResults");
+    box.innerHTML = "";
+    diagP(`⏳ ${esc(label)}…`);
+    $("diagRestart").disabled = $("diagUpdate").disabled = true;
+    try {
+      const data = await api(path, { method: "POST", body: "{}" });
+      if (data.output) {
+        const pre = document.createElement("div");
+        pre.className = "cmds"; pre.textContent = data.output;
+        box.appendChild(pre);
+      }
+      if (data.restarting) {
+        diagP("✓ Accepted — the API is restarting and will be back within " +
+          "seconds (watchdog/socket revives it). Re-checking…");
+        setTimeout(() => { poll(); runDiagnostics(); }, 6000);
+      } else {
+        diagP(data.updated === false
+          ? "✓ Already up to date — no restart needed."
+          : "✓ Done.");
+        poll();
+      }
+    } catch (e) {
+      diagP(`❌ ${esc(label)} failed: ${esc(e.message)}`);
+    } finally {
+      $("diagRestart").disabled = $("diagUpdate").disabled = false;
+    }
+  }
+  $("diagRestart").addEventListener("click", () =>
+    apiMaintenance("/api/restart", "Restarting the control API"));
+  $("diagUpdate").addEventListener("click", () =>
+    apiMaintenance("/api/update", "Updating from GitHub (git pull) and restarting"));
 
   $("sbarDiag").addEventListener("click", runDiagnostics);
   $("diagRerun").addEventListener("click", runDiagnostics);

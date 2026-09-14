@@ -16,6 +16,8 @@ webpage (hosted on optimus) talks to:
     POST /api/messages      → save the message groups on this robot
     POST /api/songs_seen    → acknowledge new songs
     POST /api/show          → run the full showroom sequence
+    POST /api/restart       → restart the API (watchdog/socket revives it)
+    POST /api/update        → git pull on the robot, then restart
 
 Standard library only — no Flask/aiohttp needed on the robot.
 
@@ -69,7 +71,7 @@ LOGGER = logging.getLogger("cooper_panel")
 # Bumped on every change, in lockstep with PANEL_VERSION in
 # cooper_control_panel.html. The panel shows both and flags a mismatch,
 # so a half-deployed update is visible at a glance.
-SERVER_VERSION = "2026.09.13-19"
+SERVER_VERSION = "2026.09.14-1"
 
 # For the health report's uptime figure.
 SERVER_STARTED = time.time()
@@ -1464,6 +1466,48 @@ def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str,
                     timing = result.pop("timing", {})
                     timing["server_total_ms"] = server_ms()
                     return self._send_json({"ok": True, **result, "timing": timing})
+
+                if self.path == "/api/restart":
+                    # Exit the process: the systemd socket / cron wrapper /
+                    # watchdog brings the API back within seconds, running
+                    # whatever code is on disk. No SSH needed.
+                    if shows.running():
+                        return self._send_json(
+                            {"ok": False,
+                             "error": "a show is running — wait for it to finish"}, 409)
+                    LOGGER.info("Restart requested from the panel")
+                    threading.Timer(0.6, lambda: os._exit(0)).start()
+                    return self._send_json({"ok": True, "restarting": True})
+
+                if self.path == "/api/update":
+                    # git pull on the robot, then restart — the panel's
+                    # "Update & restart" button; replaces the manual SSH.
+                    if shows.running():
+                        return self._send_json(
+                            {"ok": False,
+                             "error": "a show is running — wait for it to finish"}, 409)
+                    repo = Path(__file__).resolve().parent
+                    try:
+                        proc = subprocess.run(
+                            ["git", "-C", str(repo), "pull", "--ff-only"],
+                            capture_output=True, text=True, timeout=90)
+                    except subprocess.TimeoutExpired:
+                        return self._send_json(
+                            {"ok": False, "error": "git pull timed out — is "
+                             "the robot's internet connection up?"}, 502)
+                    out = (proc.stdout + "\n" + proc.stderr).strip()
+                    LOGGER.info("Panel-triggered update: rc=%s output=%s",
+                                proc.returncode, out[-400:])
+                    if proc.returncode != 0:
+                        return self._send_json(
+                            {"ok": False,
+                             "error": "git pull failed: " + out[-400:]}, 502)
+                    updated = "Already up to date" not in out
+                    if updated:
+                        threading.Timer(0.8, lambda: os._exit(0)).start()
+                    return self._send_json({"ok": True, "updated": updated,
+                                            "restarting": updated,
+                                            "output": out[-800:]})
 
                 if self.path == "/api/gear_up":
                     if shows.running():
