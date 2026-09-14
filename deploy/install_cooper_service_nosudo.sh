@@ -81,10 +81,37 @@ ListenStream=$PORT
 WantedBy=sockets.target
 EOF
 
+  # Self-heal timer: every minute, clear any failed state (e.g. the
+  # "start-limit-hit" crash-loop lockout) and re-arm the socket if it died —
+  # the systemd-mode equivalent of the cron watchdog. No SSH needed.
+  cat > "$UNIT_DIR/cooper-watchdog.service" <<EOF
+[Unit]
+Description=Cooper panel self-heal (clear failed state, re-arm the socket)
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash -c 'systemctl --user reset-failed cooper-panel.service cooper-panel.socket 2>/dev/null || true; systemctl --user is-active --quiet cooper-panel.socket || systemctl --user restart cooper-panel.socket'
+EOF
+
+  cat > "$UNIT_DIR/cooper-watchdog.timer" <<EOF
+[Unit]
+Description=Run the Cooper panel self-heal every minute
+
+[Timer]
+OnBootSec=45
+OnUnitActiveSec=60
+
+[Install]
+WantedBy=timers.target
+EOF
+
   systemctl --user daemon-reload
   systemctl --user enable --now cooper-panel.socket
+  systemctl --user enable --now cooper-watchdog.timer
   echo
   echo "Done. The API starts on the first connection to port $PORT."
+  echo "Self-heal timer armed: failed units are reset and the socket is"
+  echo "re-armed automatically every minute."
   if loginctl enable-linger "$USER" >/dev/null 2>&1; then
     echo "Lingering enabled: it will also arm at every boot, no login needed."
   else

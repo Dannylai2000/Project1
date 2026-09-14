@@ -100,7 +100,15 @@ failure degrades gracefully to the plain mute behavior. To confirm the
 diagnosis by hand: `python3 x2_showroom_demo.py --no-mute` — if that
 show has sound, the mute is what silences the audio.
 
-### Restarting the API after an update
+### Updating with no SSH (preferred)
+
+In the panel: **🩺 Diagnose → ⬆ Update & restart** — the robot pulls
+the latest code from GitHub and restarts its own API; the watchdog
+(cron or systemd timer) revives it within seconds. **♻ Restart API**
+does the restart alone. Re-copy the webpage to optimus separately when
+the panel itself changed (the version tag turns amber if you forget).
+
+### Restarting the API after an update (manual, over SSH)
 
 **Cron mode** (Cooper's current setup — `systemctl` no longer manages it;
 "Unit not loaded" from systemctl is normal here):

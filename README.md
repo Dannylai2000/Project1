@@ -102,6 +102,14 @@ Features:
   skips its own MIC switching. "Normal" reverses it. The mode is stored
   on the robot, so every panel shows the true state; an un-geared show
   still switches MICs automatically as a fallback.
+- **Self-healing & no-SSH maintenance** — each robot heals itself: a
+  cron watchdog (cron installs) or a systemd user timer (socket
+  installs) checks every minute, clears failed states, and revives the
+  API after crashes, logouts, or crash-loop lockouts. Routine
+  operations moved into the panel's 🩺 Diagnose modal: **♻ Restart
+  API** and **⬆ Update & restart** (the robot runs `git pull` on
+  itself and restarts — deploys without anyone SSHing in). Both are
+  PIN-protected and refused while a show is running.
 - **🩺 Diagnose button** — one tap on the server status bar. API online:
   runs a health check on Cooper itself (AimDK services, start-after-reboot
   persistence, program files, PIN) with a plain-language fix for anything
