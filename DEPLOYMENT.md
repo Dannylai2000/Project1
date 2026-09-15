@@ -225,7 +225,29 @@ back to 192.168.68.54.
 For events, install Cooper's service with `--idle-exit 0` so there is no idle
 timer while waiting for the performance slot.
 
-## D. Show-day checklist
+## D. Uninstall / decommission a robot
+
+Before returning or repurposing a robot, remove everything the panel
+installed with one command (no sudo needed — everything is user-level):
+
+```bash
+cd ~/cooper && ./deploy/uninstall_cooper.sh
+```
+
+It stops the API and any running show, removes the cron entries and the
+systemd user units (which contain the PIN), disables lingering, deletes
+the logs, verifies nothing is left, and finally deletes `~/cooper`
+itself — including the runtime files (`cooper_panel_config.json`,
+`cooper_messages.json`, `deploy/.panel_env`). Use `--yes` to skip the
+confirmation, `--keep-code` to clean up services but keep the code.
+
+The panel never modifies the robot's system (it was installed without
+sudo), so beyond this cleanup, a factory reset is the manufacturer's
+own procedure. Remember also to remove the robot's IP from ⚙ Settings
+on the panel devices, and to forget Wi-Fi / delete SSH keys per your
+own handover checklist.
+
+## E. Show-day checklist
 
 1. Power Cooper on; wait for boot.
 2. Open the panel → the status bar goes green by itself (on-demand start).

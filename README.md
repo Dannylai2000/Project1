@@ -106,6 +106,11 @@ Features:
   skips its own MIC switching. "Normal" reverses it. The mode is stored
   on the robot, so every panel shows the true state; an un-geared show
   still switches MICs automatically as a fallback.
+- **One-command uninstall** — `./deploy/uninstall_cooper.sh` removes
+  everything from a robot before returning or repurposing it:
+  processes, cron entries, systemd user units (incl. the PIN),
+  lingering, logs, and the code directory itself, with a final
+  verification. See DEPLOYMENT.md section D.
 - **Self-healing & no-SSH maintenance** — each robot heals itself: a
   cron watchdog (cron installs) or a systemd user timer (socket
   installs) checks every minute, clears failed states, and revives the
