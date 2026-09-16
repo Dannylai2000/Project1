@@ -197,6 +197,26 @@ selector) to carry on with the other robot.
 Note: the shortlist, play times, show dance, and message groups are
 stored on each robot, so configure them once per robot.
 
+### 3c. Robot goes offline when you log out? The session keeper
+
+If the panel is green only while someone is SSH'd into the robot, that
+robot's user services stop at logout (no lingering, no auto-login, and
+cron ignoring user jobs — all three normal boot paths closed). Fix it
+from optimus, which is always on: hold one permanent SSH session to the
+robot so its user services stay armed. On optimus:
+
+```bash
+ssh-copy-id agi@192.168.68.113        # once: passwordless SSH to the robot
+cd ~/Project1                          # wherever this repo is on optimus
+sudo ./deploy/install_session_keeper_on_optimus.sh 192.168.68.113 agi
+```
+
+The keeper reconnects automatically after reboots (either machine) and
+Wi-Fi drops, so the robot's API is armed whenever the robot is up —
+this also makes the panel go green sooner after the robot boots. One
+`sudo loginctl enable-linger agi` by an admin ON THE ROBOT makes the
+keeper unnecessary, if that ever becomes available.
+
 ## B. optimus — the webserver hosting the page
 
 The panel webpage is hosted ONLY on the Ubuntu PC `optimus`
