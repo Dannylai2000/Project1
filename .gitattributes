@@ -1,0 +1,9 @@
+# Force Unix line endings on every checkout, regardless of the machine's
+# core.autocrlf setting: CRLF breaks bash shebangs ("env: bash\r: No such
+# file or directory") and Python scripts on the robots and optimus.
+* text=auto eol=lf
+*.sh text eol=lf
+*.py text eol=lf
+*.html text eol=lf
+*.md text eol=lf
+*.json text eol=lf
