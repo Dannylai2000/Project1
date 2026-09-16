@@ -309,6 +309,17 @@
     <div class="hint">If the active robot fails, switch to the other one here —
       or straight from the red status bar. The backup robot must run the same
       Cooper server (see DEPLOYMENT.md).</div>
+    <details class="field" id="keeperHelp">
+      <summary style="cursor:pointer">Session keeper — copy-paste setup
+        commands (runs on optimus)</summary>
+      <div class="hint">A keeper holds a login session from optimus to a
+        robot so its services stay armed with nobody logged in. Install
+        <b>one per robot</b> — it follows the IPs above, so after changing
+        an IP: run the remove command for the old IP, then the install
+        command for the new one. Paste into a terminal on optimus
+        (replace <b>&lt;robot password&gt;</b> — used once, never stored).</div>
+      <div id="keeperCmds"></div>
+    </details>
     <div class="row">
       <input type="password" id="pin" placeholder="Panel PIN">
       <button id="connect">Connect</button>
@@ -722,7 +733,7 @@
 
   // Bumped on every change, in lockstep with SERVER_VERSION in
   // cooper_panel_server.py. Shown top-right; amber = page and API differ.
-  const PANEL_VERSION = "2026.09.16-6";
+  const PANEL_VERSION = "2026.09.16-7";
   $("verChip").textContent = "v" + PANEL_VERSION;
 
   function status(msg, cls = "") {
@@ -1817,6 +1828,41 @@
     apiMaintenance("/api/restart", "Restarting the control API"));
   $("diagUpdate").addEventListener("click", () =>
     apiMaintenance("/api/update", "Updating from GitHub (git pull) and restarting"));
+
+  // ── session-keeper command generator (⚙ Settings) ───────────────────
+  // Installing on optimus needs sudo there, so a one-click remote install
+  // would mean a root-capable service listening on the LAN — not worth it
+  // for a twice-a-year task. Instead: ready-made commands built from the
+  // IPs above, with copy buttons.
+  function renderKeeperCmds() {
+    const box = $("keeperCmds");
+    box.innerHTML = "";
+    const robots = [];
+    if ($("ip").value.trim()) robots.push(["primary robot", $("ip").value.trim()]);
+    if ($("ip2").value.trim()) robots.push(["secondary robot", $("ip2").value.trim()]);
+    if (!robots.length) {
+      box.innerHTML = '<div class="hint">Enter a robot IP above to generate its commands.</div>';
+      return;
+    }
+    for (const [name, ip] of robots) {
+      const h = document.createElement("div");
+      h.className = "hint";
+      h.textContent = `Install / update the keeper for the ${name} (${ip}):`;
+      box.appendChild(h);
+      box.appendChild(cmdBlock(
+        "cd ~/Project1 && git pull && sudo ./deploy/" +
+        `install_session_keeper_on_optimus.sh ${ip} agi --password <robot password>`));
+    }
+    const h2 = document.createElement("div");
+    h2.className = "hint";
+    h2.textContent = "Remove a keeper after an IP change (use the OLD IP):";
+    box.appendChild(h2);
+    box.appendChild(cmdBlock(
+      "sudo ~/Project1/deploy/install_session_keeper_on_optimus.sh --remove <old ip>"));
+  }
+  $("ip").addEventListener("input", renderKeeperCmds);
+  $("ip2").addEventListener("input", renderKeeperCmds);
+  renderKeeperCmds();
 
   $("sbarDiag").addEventListener("click", runDiagnostics);
   $("diagRerun").addEventListener("click", runDiagnostics);
