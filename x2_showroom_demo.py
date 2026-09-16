@@ -94,7 +94,10 @@ DANCE_DURATION_S   = 33.0
 FINAL_MOTION_ID     = 1007
 FINAL_AREA_ID       = 3
 FINAL_MOTION_WAIT_S = 3.0   # hold the closing heart before the end steps
-STAND_SETTLE_S      = 8.0   # Stable Stand settle before a preset motion
+# Stable Stand settle after the dance, before the closing heart. The vendor
+# sample uses 8 s; 3 s tested acceptable — if the robot still isn't ready,
+# the heart retries once after 2 s instead of being skipped.
+STAND_SETTLE_S      = 3.0
 
 # ── Sequence texts ────────────────────────────────────────────────────────────
 GREETING_TEXT  = "Thank You Caden for remembering me! Hello everyone! It is wonderful to be here with you today."
@@ -131,6 +134,7 @@ class IntroSequenceNode(Node):
         mic_external: int = 2,
         mic_internal: int = 1,
         no_dance: bool = False,
+        stand_settle_s: float = STAND_SETTLE_S,
     ) -> None:
         super().__init__("x2_intro_sequence")
 
@@ -146,6 +150,7 @@ class IntroSequenceNode(Node):
         self._dance_key = dance_key
         self._dance_duration_s = dance_duration_s
         self._no_dance = bool(no_dance)
+        self._stand_settle_s = max(0.0, float(stand_settle_s))
         self._greeting_text = greeting_text or GREETING_TEXT
         self._intro_text = intro_text or INTRO_TEXT
         self._thank_you_text = thank_you_text or THANK_YOU_TEXT
@@ -712,6 +717,19 @@ class IntroSequenceNode(Node):
         LOGGER.error("Preset motion rejected: code=%s state=%s task_id=%s", code, state, task_id)
         return False
 
+    def _closing_heart(self) -> bool:
+        """The both-hands heart, with one retry for a short stand settle.
+
+        With a 3 s settle the controller occasionally isn't ready yet; a
+        rejected heart waits 2 s and tries once more, so the worst case is
+        a slightly late heart instead of a missing one.
+        """
+        if self._run_preset_motion(FINAL_MOTION_ID, FINAL_AREA_ID, 0.0):
+            return True
+        LOGGER.info("Heart rejected right after the settle — retrying in 2s")
+        time.sleep(2.0)
+        return self._run_preset_motion(FINAL_MOTION_ID, FINAL_AREA_ID, 0.0)
+
     # ── Sequence ───────────────────────────────────────────────────────────
 
     def _run_sequence(self) -> None:
@@ -764,7 +782,7 @@ class IntroSequenceNode(Node):
                     # motions until Stable Stand has settled — required
                     # before the closing heart.
                     self.get_logger().info("=== STEP 3b: BACK TO STABLE STAND ===")
-                    self._stand_default(settle_s=STAND_SETTLE_S)
+                    self._stand_default(settle_s=self._stand_settle_s)
 
             # The both-hands heart plays WHILE the thank-you and goodbye are
             # spoken (same overlap technique as the greeting wave).
@@ -772,9 +790,7 @@ class IntroSequenceNode(Node):
             self._play_emoji("closing")
             self._speak(
                 self._thank_you_text,
-                during=lambda: self._run_preset_motion(
-                    FINAL_MOTION_ID, FINAL_AREA_ID, 0.0
-                ),
+                during=self._closing_heart,
             )
 
             self.get_logger().info("=== STEP 5: GOODBYE ===")
@@ -828,6 +844,11 @@ def main() -> None:
     parser.add_argument("--no-dance", action="store_true",
                         help="skip the dance: welcome + wave, intro, "
                              "heart + thank-you, goodbye only")
+    parser.add_argument("--stand-settle", type=float, default=STAND_SETTLE_S,
+                        help="seconds to let Stable Stand settle between the "
+                             "dance and the closing heart (default "
+                             f"{STAND_SETTLE_S:g}; raise it if the heart "
+                             "often needs its retry)")
     parser.add_argument("--thank-you-text", default=THANK_YOU_TEXT,
                         help="custom thank-you message spoken in step 4")
     parser.add_argument("--goodbye-text", default=GOODBY_TEXT,
@@ -880,6 +901,7 @@ def main() -> None:
         mic_external=args.mic_external,
         mic_internal=args.mic_internal,
         no_dance=args.no_dance,
+        stand_settle_s=args.stand_settle,
     )
     executor = MultiThreadedExecutor()
     executor.add_node(node)
