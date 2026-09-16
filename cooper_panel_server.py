@@ -71,7 +71,7 @@ LOGGER = logging.getLogger("cooper_panel")
 # Bumped on every change, in lockstep with PANEL_VERSION in
 # cooper_control_panel.html. The panel shows both and flags a mismatch,
 # so a half-deployed update is visible at a glance.
-SERVER_VERSION = "2026.09.16-5"
+SERVER_VERSION = "2026.09.16-6"
 
 # For the health report's uptime figure.
 SERVER_STARTED = time.time()
@@ -732,6 +732,14 @@ class CooperPanelNode(Node):
         try:
             with suppress(Exception):
                 self._send_volume(0)  # silence the switch announcement
+            # The robot re-routes audio only on a VALUE CHANGE: a direct
+            # set to the current stored value is accepted and echoed back,
+            # but the pipeline stays where it was (observed in the field —
+            # config said in-built while the robot stayed deaf on the
+            # external mic). Toggle through the opposite source first so
+            # the final switch is always a real transition.
+            self._call_mic_source(self._mic_external)
+            time.sleep(1.0)
             if self._call_mic_source(self._mic_internal):
                 self.mic_geared = False
         except Exception:
@@ -757,7 +765,13 @@ class CooperPanelNode(Node):
         with suppress(Exception):
             self._send_volume(0)  # silence the switch announcement
         target = self._mic_external if external else self._mic_internal
+        opposite = self._mic_internal if external else self._mic_external
         try:
+            # Toggle through the opposite source first: the robot re-routes
+            # audio only on a value change, so this guarantees the final
+            # switch is a real transition (see _normalize_mic_source).
+            self._call_mic_source(opposite)
+            time.sleep(1.0)
             if not self._call_mic_source(target):
                 actual = self.mic_source_state
                 detail = ""
