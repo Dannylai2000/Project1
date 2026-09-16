@@ -71,7 +71,7 @@ LOGGER = logging.getLogger("cooper_panel")
 # Bumped on every change, in lockstep with PANEL_VERSION in
 # cooper_control_panel.html. The panel shows both and flags a mismatch,
 # so a half-deployed update is visible at a glance.
-SERVER_VERSION = "2026.09.16-2"
+SERVER_VERSION = "2026.09.16-3"
 
 # For the health report's uptime figure.
 SERVER_STARTED = time.time()
@@ -894,12 +894,15 @@ class ShowRunner:
         dance_duration: float | None = None,
         volume: int | None = None,
         geared: bool = False,
+        skip_dance: bool = False,
     ) -> dict:
         t0 = time.perf_counter()
         with self._lock:
             if self._proc is not None and self._proc.poll() is None:
                 raise RuntimeError("a show is already running")
             cmd = [sys.executable, str(SHOW_SCRIPT)]
+            if skip_dance:
+                cmd += ["--no-dance"]
             if dance_key:
                 cmd += ["--dance-key", dance_key]
             if unmute_after:
@@ -1614,9 +1617,12 @@ def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str,
                 if self.path == "/api/show":
                     greeting, intro, thank_you, goodbye = \
                         resolve_messages(body, messages)
+                    skip_dance = bool(body.get("skip_dance", False))
                     dance_key = (str(body.get("dance_key") or "")
                                  or config.get_show_dance() or None)
-                    if not dance_key:
+                    if skip_dance:
+                        dance_key = None       # talk-only show: no dance needed
+                    elif not dance_key:
                         # Never fall back to the show script's built-in dance
                         # key: LinkCraft IDs differ per robot, so a key baked
                         # in for one robot fails on another.
@@ -1625,28 +1631,30 @@ def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str,
                              "error": "no show dance configured on this robot "
                                       "— pick one in ⚙ Settings (each robot "
                                       "has its own LinkCraft IDs)"}, 400)
-                    # Same trap, second form: a dance key copied over from
-                    # another robot. Verify it against THIS robot's library
-                    # before launching, so the show fails loudly here rather
-                    # than silently skipping the dance mid-performance.
-                    library_keys = None
-                    with suppress(Exception):
-                        library_keys = {d["key"] for d in library.refresh()}
-                    if library_keys is not None and dance_key not in library_keys:
-                        return self._send_json(
-                            {"ok": False,
-                             "error": f"show dance {dance_key[-16:]}… is not "
-                                      "in this robot's LinkCraft library — it "
-                                      "belongs to the other robot. Pick this "
-                                      "robot's own song in ⚙ Settings"}, 400)
-                    # Per-song play time: 999 = "play the full song"
-                    # sentinel; a number = that many seconds; blank = the
-                    # measured song length; nothing measurable = 33 s default.
-                    dance_duration = config.get_dance_times().get(dance_key)
-                    if dance_duration is not None and int(dance_duration) == 999:
-                        dance_duration = None
-                    if dance_duration is None:
-                        dance_duration = library.duration_for(dance_key)
+                    dance_duration = None
+                    if dance_key:
+                        # Same trap, second form: a dance key copied over
+                        # from another robot. Verify it against THIS robot's
+                        # library before launching, so the show fails loudly
+                        # here rather than silently skipping the dance.
+                        library_keys = None
+                        with suppress(Exception):
+                            library_keys = {d["key"] for d in library.refresh()}
+                        if library_keys is not None and dance_key not in library_keys:
+                            return self._send_json(
+                                {"ok": False,
+                                 "error": f"show dance {dance_key[-16:]}… is not "
+                                          "in this robot's LinkCraft library — it "
+                                          "belongs to the other robot. Pick this "
+                                          "robot's own song in ⚙ Settings"}, 400)
+                        # Per-song play time: 999 = "play the full song"
+                        # sentinel; a number = that many seconds; blank = the
+                        # measured song length; unmeasurable = 33 s default.
+                        dance_duration = config.get_dance_times().get(dance_key)
+                        if dance_duration is not None and int(dance_duration) == 999:
+                            dance_duration = None
+                        if dance_duration is None:
+                            dance_duration = library.duration_for(dance_key)
                     # Guarantee the show is audible — unless the speaker was
                     # deliberately muted in the panel (silent rehearsal).
                     if node.speaker_state is False:
@@ -1663,6 +1671,7 @@ def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str,
                         dance_duration=dance_duration,
                         volume=volume,
                         geared=node.mic_geared,
+                        skip_dance=skip_dance,
                     )
                     if volume >= 0:
                         node.speaker_state = True

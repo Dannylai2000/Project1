@@ -17,8 +17,12 @@ original script:
   in a background thread during the greeting, so step 3 only sends the
   execute request.
 - **Ending**: after the dance, Stable Stand (required before preset
-  motions), then the both-hands heart, then the thank-you and goodbye
-  speeches.
+  motions), then the both-hands heart playing WHILE the thank-you and
+  goodbye are spoken.
+- **Skip the dance** — a checkbox in the Performance card runs a
+  talk-and-gestures-only show (wave + welcome, introduction,
+  heart + thank-you, goodbye): no dance, no song configuration needed,
+  no Stable-Stand wait.
 - **Face emoji**: the eye open/close (blink) expression is played on
   Cooper's face at each show phase — welcome, dance, and closing — via
   the AimDK `PlayEmoji` service. Fire-and-forget: a missing service only

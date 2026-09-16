@@ -4,10 +4,9 @@ Runs a fixed sequence once on startup:
   0. Mute microphones (stop the built-in assistant listening/answering)
   1. Greeting (spoken WHILE waving — no wait before speech starts)
   2. Self-introduction (dance resource is prefetched in the background)
-  3. LinkCraft dance (APT 32s) — starts immediately, resource already cached
-  4. Stable Stand, then the both-hands heart (right after the dance)
-  5. Thank you (spoken)
-  6. Goodbye (spoken)
+  3. LinkCraft dance (skipped with --no-dance), then Stable Stand
+  4. Thank you (spoken WHILE making the both-hands heart)
+  5. Goodbye (spoken; the heart pose finishes underneath)
 
 The microphone stays muted after the show so the robot does not react to
 surrounding conversation. Pass --unmute-after to restore listening when
@@ -131,6 +130,7 @@ class IntroSequenceNode(Node):
         mic_source_field: str = "audio_stream_id",
         mic_external: int = 2,
         mic_internal: int = 1,
+        no_dance: bool = False,
     ) -> None:
         super().__init__("x2_intro_sequence")
 
@@ -145,6 +145,7 @@ class IntroSequenceNode(Node):
         self._unmute_after = unmute_after
         self._dance_key = dance_key
         self._dance_duration_s = dance_duration_s
+        self._no_dance = bool(no_dance)
         self._greeting_text = greeting_text or GREETING_TEXT
         self._intro_text = intro_text or INTRO_TEXT
         self._thank_you_text = thank_you_text or THANK_YOU_TEXT
@@ -517,6 +518,8 @@ class IntroSequenceNode(Node):
     def _prefetch_dance_resource(self) -> None:
         """Fetch the LinkCraft dance resource in the background at startup."""
         try:
+            if self._no_dance:
+                return  # talk-only show — nothing to prefetch
             if not self._get_resources.wait_for_service(timeout_sec=15.0):
                 LOGGER.warning("GetRobotResources not available during prefetch")
                 return
@@ -746,33 +749,40 @@ class IntroSequenceNode(Node):
             self.get_logger().info("=== STEP 2: SELF-INTRODUCTION ===")
             self._speak(self._intro_text)
 
-            self.get_logger().info("=== STEP 3: DANCE ===")
-            self._play_emoji("dance")
-            self._run_linkcraft_action(self._dance_key, self._dance_duration_s)
+            if self._no_dance:
+                # Talk-and-gestures-only show: welcome + wave, intro,
+                # heart + thank-you, goodbye. No dance, and no Stable-Stand
+                # wait either — the robot is already standing.
+                self.get_logger().info("=== STEP 3: DANCE SKIPPED (--no-dance) ===")
+            else:
+                self.get_logger().info("=== STEP 3: DANCE ===")
+                self._play_emoji("dance")
+                danced = self._run_linkcraft_action(
+                    self._dance_key, self._dance_duration_s)
+                if danced:
+                    # After a LinkCraft dance the controller rejects preset
+                    # motions until Stable Stand has settled — required
+                    # before the closing heart.
+                    self.get_logger().info("=== STEP 3b: BACK TO STABLE STAND ===")
+                    self._stand_default(settle_s=STAND_SETTLE_S)
 
-            # After a LinkCraft dance the motion controller stays in dance
-            # mode and REJECTS preset motions — Stable Stand (with its full
-            # settle) is required before the heart can play.
-            self.get_logger().info("=== STEP 3b: BACK TO STABLE STAND ===")
-            self._stand_default(settle_s=STAND_SETTLE_S)
-
-            # The both-hands heart comes right after the dance, BEFORE the
-            # thank-you/goodbye speeches (the speeches used to run first and
-            # made the heart feel late).
-            self.get_logger().info("=== STEP 4: BOTH-HANDS HEART ===")
+            # The both-hands heart plays WHILE the thank-you and goodbye are
+            # spoken (same overlap technique as the greeting wave).
+            self.get_logger().info("=== STEP 4: THANK YOU + HEART ===")
             self._play_emoji("closing")
-            self._run_preset_motion(
-                FINAL_MOTION_ID, FINAL_AREA_ID, FINAL_MOTION_WAIT_S
+            self._speak(
+                self._thank_you_text,
+                during=lambda: self._run_preset_motion(
+                    FINAL_MOTION_ID, FINAL_AREA_ID, 0.0
+                ),
             )
 
-            self.get_logger().info("=== STEP 5: THANK YOU ===")
-            self._speak(self._thank_you_text)
-
-            self.get_logger().info("=== STEP 6: GOODBYE ===")
+            self.get_logger().info("=== STEP 5: GOODBYE ===")
             self._speak(
                 self._goodbye_text,
                 mark="goodbye_speech",
             )
+            time.sleep(FINAL_MOTION_WAIT_S)  # let the heart finish its pose
 
 
             self.get_logger().info("=== Sequence complete ===")
@@ -815,6 +825,9 @@ def main() -> None:
                         help="custom welcome greeting spoken in step 1")
     parser.add_argument("--intro-text", default=INTRO_TEXT,
                         help="custom self-introduction spoken in step 2")
+    parser.add_argument("--no-dance", action="store_true",
+                        help="skip the dance: welcome + wave, intro, "
+                             "heart + thank-you, goodbye only")
     parser.add_argument("--thank-you-text", default=THANK_YOU_TEXT,
                         help="custom thank-you message spoken in step 4")
     parser.add_argument("--goodbye-text", default=GOODBY_TEXT,
@@ -866,6 +879,7 @@ def main() -> None:
         mic_source_field=args.mic_source_field,
         mic_external=args.mic_external,
         mic_internal=args.mic_internal,
+        no_dance=args.no_dance,
     )
     executor = MultiThreadedExecutor()
     executor.add_node(node)
