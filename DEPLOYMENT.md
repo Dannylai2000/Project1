@@ -206,9 +206,22 @@ from optimus, which is always on: hold one permanent SSH session to the
 robot so its user services stay armed. On optimus:
 
 ```bash
-ssh-copy-id agi@192.168.68.113        # once: passwordless SSH to the robot
 cd ~/Project1                          # wherever this repo is on optimus
-sudo ./deploy/install_session_keeper_on_optimus.sh 192.168.68.113 agi
+sudo ./deploy/install_session_keeper_on_optimus.sh 192.168.68.113 agi --password <robot pw>
+```
+
+The `--password` is used once to install a **dedicated, restricted
+keeper key** on the robot (idle-session-only: it cannot run commands,
+open a shell, or forward ports even if it leaks) and is never stored.
+
+Install **one keeper per robot** — they coexist, and the standby robot
+must stay armed too or failover would land on an offline robot. The
+keeper is independent of the panel's Active-robot selector. When a
+robot's IP changes:
+
+```bash
+sudo ./deploy/install_session_keeper_on_optimus.sh --remove <old-ip>
+sudo ./deploy/install_session_keeper_on_optimus.sh <new-ip> agi --password <pw>
 ```
 
 The keeper reconnects automatically after reboots (either machine) and
