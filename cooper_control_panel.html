@@ -722,7 +722,7 @@
 
   // Bumped on every change, in lockstep with SERVER_VERSION in
   // cooper_panel_server.py. Shown top-right; amber = page and API differ.
-  const PANEL_VERSION = "2026.09.16-3";
+  const PANEL_VERSION = "2026.09.16-4";
   $("verChip").textContent = "v" + PANEL_VERSION;
 
   function status(msg, cls = "") {
@@ -1457,7 +1457,14 @@
     }
   });
 
+  // The robot's dance service (GetRobotResources) belongs to AgiBot's own
+  // software, which takes minutes after power-on — while the API (armed
+  // within seconds by the session keeper / socket) is already green. Retry
+  // quietly until the SDK is up instead of showing a dead-end error.
+  let danceRetryTimer = null;
   async function refreshDances() {
+    clearTimeout(danceRetryTimer);
+    danceRetryTimer = null;
     try {
       const [dRes, sRes] = await Promise.all([
         api("/api/dances"),
@@ -1488,7 +1495,18 @@
       status(`Song library loaded: ${allDances.length} song(s), ${shown} in the dance list` +
              (fresh ? `, ${fresh} NEW` : "") + ".", "ok");
     } catch (e) {
-      status(`Loading dances failed: ${e.message}`, "err");
+      if (/not available/i.test(e.message)) {
+        status("The robot's software is still starting — the song list " +
+          "will load by itself once its dance service is up…");
+        if (!allDances.length) {
+          $("shortlist").innerHTML = '<span class="empty">Waiting for the ' +
+            "robot's dance service (part of the robot software — takes a " +
+            "few minutes after power-on)…</span>";
+        }
+        danceRetryTimer = setTimeout(refreshDances, 15000);
+      } else {
+        status(`Loading dances failed: ${e.message}`, "err");
+      }
     }
   }
 
