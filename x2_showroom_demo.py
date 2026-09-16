@@ -5,10 +5,9 @@ Runs a fixed sequence once on startup:
   1. Greeting (spoken WHILE waving — no wait before speech starts)
   2. Self-introduction (dance resource is prefetched in the background)
   3. LinkCraft dance (APT 32s) — starts immediately, resource already cached
-  4. Bow, Clap
+  4. Stable Stand, then the both-hands heart (right after the dance)
   5. Thank you (spoken)
   6. Goodbye (spoken)
-  7. Both-hands heart — the closing pose, held before the end steps
 
 The microphone stays muted after the show so the robot does not react to
 surrounding conversation. Pass --unmute-after to restore listening when
@@ -752,34 +751,27 @@ class IntroSequenceNode(Node):
             self._run_linkcraft_action(self._dance_key, self._dance_duration_s)
 
             # After a LinkCraft dance the motion controller stays in dance
-            # mode and REJECTS preset motions (state=400) — Stable Stand is
-            # required first. Request it now and let its settle time overlap
-            # the thank-you/goodbye speeches instead of standing in silence.
+            # mode and REJECTS preset motions — Stable Stand (with its full
+            # settle) is required before the heart can play.
             self.get_logger().info("=== STEP 3b: BACK TO STABLE STAND ===")
-            stand_t0 = time.monotonic()
-            stand_ok = self._stand_default(settle_s=0.0)
+            self._stand_default(settle_s=STAND_SETTLE_S)
 
-            self.get_logger().info("=== STEP 4: THANK YOU ===")
+            # The both-hands heart comes right after the dance, BEFORE the
+            # thank-you/goodbye speeches (the speeches used to run first and
+            # made the heart feel late).
+            self.get_logger().info("=== STEP 4: BOTH-HANDS HEART ===")
             self._play_emoji("closing")
+            self._run_preset_motion(
+                FINAL_MOTION_ID, FINAL_AREA_ID, FINAL_MOTION_WAIT_S
+            )
+
+            self.get_logger().info("=== STEP 5: THANK YOU ===")
             self._speak(self._thank_you_text)
 
-            self.get_logger().info("=== STEP 5: GOODBYE ===")
+            self.get_logger().info("=== STEP 6: GOODBYE ===")
             self._speak(
                 self._goodbye_text,
                 mark="goodbye_speech",
-            )
-
-            # Closing pose: the both-hands heart AFTER the goodbye, held so
-            # the motion finishes before the end-of-show mic switching.
-            if stand_ok:
-                remaining = STAND_SETTLE_S - (time.monotonic() - stand_t0)
-                if remaining > 0:
-                    self.get_logger().info(
-                        f"Waiting {remaining:.1f}s more for Stable Stand")
-                    time.sleep(remaining)
-            self.get_logger().info("=== STEP 6: BOTH-HANDS HEART ===")
-            self._run_preset_motion(
-                FINAL_MOTION_ID, FINAL_AREA_ID, FINAL_MOTION_WAIT_S
             )
 
 

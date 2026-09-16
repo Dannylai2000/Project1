@@ -549,8 +549,8 @@
           MIC. The mode is shared by all devices; if you forget to gear
           up, the show still switches MICs automatically as before.</li>
         <li><b>▶ Run full show</b> — the complete sequence: wave + welcome,
-          introduction, dance, thank-you, goodbye, both-hands heart as the
-          closing pose. Buttons lock while a show is running.</li>
+          introduction, dance, both-hands heart, thank-you, goodbye.
+          Buttons lock while a show is running.</li>
         <li><b>Show dance</b> — the song the show (and Play dance only)
           uses is chosen in ⚙ Settings → "Show dance"; the line under the
           buttons shows the current choice. It is <b>stored on the
@@ -582,7 +582,8 @@
           Fill only one to use it all day.</li>
         <li><b>Introduction</b> — spoken after the welcome, before the dance.</li>
         <li><b>Thank you</b> — spoken after the dance.</li>
-        <li><b>Goodbye</b> — spoken at the end, before the closing heart.</li>
+        <li><b>Goodbye</b> — the show's last spoken line (after the
+          both-hands heart).</li>
         <li><b>Stored on the connected robot</b> — groups live in a file on
           the robot (one set per robot), so the iPad, the PC, and every
           other device see and edit the same texts. Editing needs the
@@ -716,7 +717,7 @@
 
   // Bumped on every change, in lockstep with SERVER_VERSION in
   // cooper_panel_server.py. Shown top-right; amber = page and API differ.
-  const PANEL_VERSION = "2026.09.16-1";
+  const PANEL_VERSION = "2026.09.16-2";
   $("verChip").textContent = "v" + PANEL_VERSION;
 
   function status(msg, cls = "") {
