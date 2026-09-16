@@ -398,6 +398,7 @@
     </div>
     <div class="row">
       <button class="secondary" id="playDance">Play dance only</button>
+      <label class="chk"><input type="checkbox" id="skipDance"> skip the dance (talk &amp; gestures only)</label>
       <label class="chk"><input type="checkbox" id="unmuteAfter"> listen again after show</label>
     </div>
     <div class="hint" id="danceInfo">Show dance: — (set it in ⚙ Settings)</div>
@@ -549,8 +550,12 @@
           MIC. The mode is shared by all devices; if you forget to gear
           up, the show still switches MICs automatically as before.</li>
         <li><b>▶ Run full show</b> — the complete sequence: wave + welcome,
-          introduction, dance, both-hands heart, thank-you, goodbye.
-          Buttons lock while a show is running.</li>
+          introduction, dance, then the both-hands heart WHILE the
+          thank-you and goodbye are spoken. Buttons lock while a show is
+          running.</li>
+        <li><b>skip the dance</b> — tick to run a talk-and-gestures-only
+          show: wave + welcome, introduction, heart + thank-you, goodbye —
+          no dance, no song needed, and no Stable-Stand wait.</li>
         <li><b>Show dance</b> — the song the show (and Play dance only)
           uses is chosen in ⚙ Settings → "Show dance"; the line under the
           buttons shows the current choice. It is <b>stored on the
@@ -717,7 +722,7 @@
 
   // Bumped on every change, in lockstep with SERVER_VERSION in
   // cooper_panel_server.py. Shown top-right; amber = page and API differ.
-  const PANEL_VERSION = "2026.09.16-2";
+  const PANEL_VERSION = "2026.09.16-3";
   $("verChip").textContent = "v" + PANEL_VERSION;
 
   function status(msg, cls = "") {
@@ -1592,7 +1597,8 @@
       // Texts come from the robot's stored ACTIVE message group — every
       // device launches the show with the same messages. (An older API
       // without the store falls back to this page's fields.)
-      const body = { unmute_after: $("unmuteAfter").checked };
+      const body = { unmute_after: $("unmuteAfter").checked,
+                     skip_dance: $("skipDance").checked };
       if (!msgsOnRobot) {
         body.name = $("guestName").value.trim();
         body.greeting_am = $("greetAM").value.trim();
