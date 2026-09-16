@@ -71,7 +71,7 @@ LOGGER = logging.getLogger("cooper_panel")
 # Bumped on every change, in lockstep with PANEL_VERSION in
 # cooper_control_panel.html. The panel shows both and flags a mismatch,
 # so a half-deployed update is visible at a glance.
-SERVER_VERSION = "2026.09.14-1"
+SERVER_VERSION = "2026.09.16-1"
 
 # For the health report's uptime figure.
 SERVER_STARTED = time.time()
@@ -364,6 +364,11 @@ class CooperPanelNode(Node):
         self.mic_geared = False
         # Last VERIFIED mic source id (GetMicSourceRequest); None = unknown.
         self.mic_source_state: int | None = None
+        # This state dies with the process, and the API restarts routinely
+        # (idle-exit, logout, panel-driven update) — recover the truth from
+        # the robot itself so the panel's MIC mode stays honest.
+        threading.Thread(target=self._recover_mic_state,
+                         name="mic-state-recover", daemon=True).start()
         self._cbg = MutuallyExclusiveCallbackGroup()
         self._lock = threading.Lock()
 
@@ -601,6 +606,24 @@ class CooperPanelNode(Node):
                     if isinstance(v, int) and not isinstance(v, bool):
                         return v
         return None
+
+    def _recover_mic_state(self) -> None:
+        """At startup, read which mic is REALLY active and adopt it.
+
+        A restart used to reset mic_geared to False while the robot was
+        still on the external mic — the MIC-mode radio then showed
+        "normal", and selecting Normal was a no-op (already selected),
+        leaving no way back to the in-built mic from the panel.
+        """
+        time.sleep(3.0)  # let DDS discovery populate the service graph
+        with suppress(Exception):
+            source = self._get_mic_source()
+            if source is not None:
+                self.mic_geared = (source == self._mic_external)
+                LOGGER.info("Mic state recovered at startup: source=%d "
+                            "(%s), geared=%s", source,
+                            "external" if self.mic_geared else "in-built",
+                            self.mic_geared)
 
     def _get_mic_source(self) -> int | None:
         """Ask the robot which mic is REALLY active (GetMicSourceRequest)."""
