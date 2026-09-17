@@ -73,8 +73,14 @@ if [[ ! -f "$KEY" ]]; then
 fi
 
 keeper_auth_ok() {
-  timeout 15 sudo -u "$RUN_AS" ssh -i "$KEY" -o IdentitiesOnly=yes "${SSH_BASE[@]}" \
-    "$ROBOT_USER@$ROBOT_IP" true 2>/dev/null
+  # The keeper key is restricted with command="sleep infinity" on the robot,
+  # so a normal "ssh ... true" probe would hang inside our own restriction
+  # (the robot runs the forced command instead of `true`). Probe with -N
+  # (no command) under a short timeout instead: if the connection survives
+  # 5 s, authentication succeeded — auth failures exit almost immediately.
+  timeout 5 sudo -u "$RUN_AS" ssh -i "$KEY" -o IdentitiesOnly=yes "${SSH_BASE[@]}" \
+    -N "$ROBOT_USER@$ROBOT_IP" 2>/dev/null
+  [[ $? -eq 124 ]]   # 124 = timeout killed a still-connected ssh = auth OK
 }
 
 if ! keeper_auth_ok; then
