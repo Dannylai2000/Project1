@@ -73,7 +73,7 @@ if [[ ! -f "$KEY" ]]; then
 fi
 
 keeper_auth_ok() {
-  sudo -u "$RUN_AS" ssh -i "$KEY" -o IdentitiesOnly=yes "${SSH_BASE[@]}" \
+  timeout 15 sudo -u "$RUN_AS" ssh -i "$KEY" -o IdentitiesOnly=yes "${SSH_BASE[@]}" \
     "$ROBOT_USER@$ROBOT_IP" true 2>/dev/null
 }
 
@@ -83,7 +83,7 @@ if ! keeper_auth_ok; then
   PUB="$(cat "$KEY.pub")"
   LINE="command=\"sleep infinity\",no-pty,no-port-forwarding,no-agent-forwarding,no-X11-forwarding $PUB"
   REMOTE='mkdir -p ~/.ssh && chmod 700 ~/.ssh && touch ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys && line="$(cat)" && grep -qF "$line" ~/.ssh/authorized_keys || echo "$line" >> ~/.ssh/authorized_keys'
-  if printf '%s\n' "$LINE" | sudo -u "$RUN_AS" ssh "${SSH_BASE[@]}" \
+  if printf '%s\n' "$LINE" | timeout 20 sudo -u "$RUN_AS" ssh "${SSH_BASE[@]}" \
        "$ROBOT_USER@$ROBOT_IP" "$REMOTE" 2>/dev/null; then
     echo "Keeper key installed on the robot (via your existing SSH access)."
   elif [[ -n "$PASSWORD" ]]; then
@@ -91,9 +91,21 @@ if ! keeper_auth_ok; then
       echo "ERROR: sshpass is needed for --password and could not be installed." >&2
       exit 1
     }
-    printf '%s\n' "$LINE" | sudo -u "$RUN_AS" sshpass -p "$PASSWORD" \
+    # timeout: sshpass hangs forever when the robot's password prompt looks
+    # different from what it expects — fail loudly instead.
+    printf '%s\n' "$LINE" | timeout 30 sudo -u "$RUN_AS" sshpass -p "$PASSWORD" \
       ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new \
-      "$ROBOT_USER@$ROBOT_IP" "$REMOTE"
+      -o NumberOfPasswordPrompts=1 \
+      "$ROBOT_USER@$ROBOT_IP" "$REMOTE" || {
+      echo "ERROR: could not install the key using the password (wrong" >&2
+      echo "password, unreachable robot, or an unusual login prompt)." >&2
+      echo "Check by hand from this machine:" >&2
+      echo "  ping -c2 $ROBOT_IP" >&2
+      echo "  ssh $ROBOT_USER@$ROBOT_IP     # does password login work?" >&2
+      echo "Manual fallback, then re-run WITHOUT --password:" >&2
+      echo "  ssh-copy-id -i $KEY.pub $ROBOT_USER@$ROBOT_IP" >&2
+      exit 1
+    }
     echo "Keeper key installed on the robot — the password is no longer needed."
   else
     echo "ERROR: cannot reach $ROBOT_USER@$ROBOT_IP with a key, and no" >&2
