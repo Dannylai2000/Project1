@@ -230,35 +230,95 @@ this also makes the panel go green sooner after the robot boots. One
 `sudo loginctl enable-linger agi` by an admin ON THE ROBOT makes the
 keeper unnecessary, if that ever becomes available.
 
-## B. optimus — the webserver hosting the page
+## B. Webservers — hosting the page (optimus + any backup machine)
 
-The panel webpage is hosted ONLY on the Ubuntu PC `optimus`
-(192.168.68.51, Apache on port 8080) — Cooper runs the control API, not
-the page:
+A webserver's ONLY job here is serving one static file:
+`cooper_control_panel.html`. The robots run the control APIs; the page
+in the browser talks straight to a robot. No Apache modules, proxies,
+PHP, or databases — any machine with Apache (or nginx, or even
+`python3 -m http.server`) can host it. The show suite uses `optimus`
+(192.168.68.51, Apache on 8080); a backup/event webserver (e.g. a
+notebook) is set up the same way.
+
+### B1. Setting up a webserver from scratch (after `apt install apache2`)
+
+Steps for a fresh machine — optimus and the backup notebook alike:
+
+**1. Get the repo** (also enables one-line updates later):
 
 ```bash
+sudo apt-get install -y git        # if missing
+cd ~
+git clone https://github.com/Dannylai2000/Project1.git
+```
+
+No internet? Copy it from a machine that has it:
+`scp -r showsuit@192.168.68.51:~/Project1 ~/Project1`
+
+**2. (Optional) serve on port 8080 like optimus** — Apache defaults to
+port 80. Matching optimus keeps every device's bookmark pattern the
+same (`http://<server-ip>:8080`); skipping this step just means the
+URL has no `:8080`:
+
+```bash
+sudo sed -i 's/^Listen 80$/Listen 8080/' /etc/apache2/ports.conf
+sudo sed -i 's/<VirtualHost \*:80>/<VirtualHost *:8080>/' /etc/apache2/sites-available/000-default.conf
+sudo systemctl restart apache2
+```
+
+**3. Install the page** (this replaces Apache's default "It works" page):
+
+```bash
+cd ~/Project1
 sudo cp cooper_control_panel.html /var/www/html/index.html
 sudo cp cooper_icon.png /var/www/html/favicon.png    # optional tab icon
 ```
 
-Staff browse `http://192.168.68.51:8080`; the panel talks directly to
-Cooper's API at 192.168.68.54:8080 (the default address in ⚙ Settings).
-No Apache modules or proxy configuration needed.
+**4. Test** from a phone/iPad on the same network:
+`http://<server-ip>:8080` (or without `:8080` if step 2 was skipped) —
+the panel should load, and after entering the robot IP + PIN in
+⚙ Settings, go green.
 
-> Re-copy `cooper_control_panel.html` whenever panel updates are pulled —
-> this is the one easy-to-forget step.
+**5. Updating the page later** — the one easy-to-forget step whenever
+the panel changes (the amber "page ≠ API" version tag is the reminder):
 
-## C. Events — no webserver needed
+```bash
+cd ~/Project1 && git pull && sudo cp cooper_control_panel.html /var/www/html/index.html
+```
 
-Take a copy of `cooper_control_panel.html` on the notebook or tablet and
-open it straight from a folder in the browser. In ⚙ Settings type
-Cooper's event IP and press Connect; back at the show suite, change it
-back to 192.168.68.54.
+Run it on EVERY webserver (optimus and the notebook) — each hosts its
+own copy of the page.
 
-For events, install Cooper's service with `--idle-exit 0` so there is no idle
-timer while waiting for the performance slot.
+### B2. Notes for the backup / event webserver
 
-## D. Uninstall / decommission a robot
+- **The page is identical everywhere** — panels served by optimus and
+  by the notebook control the same robots, and everything that matters
+  (shortlist, show dance, play times, messages, MIC state) lives ON
+  the robots, so all devices see the same state regardless of which
+  webserver served them the page.
+- **Browser settings are per web address**: the browser stores the
+  robot IPs, PIN, and Active-robot choice separately for
+  `http://192.168.68.51:8080` and `http://<notebook-ip>:8080`. The
+  first time a device opens the panel from the NEW webserver, enter
+  the robot IP and PIN once in ⚙ Settings — they stick from then on.
+- **Events without optimus**: the notebook can also take over the
+  session-keeper duty so the robot's services stay armed at the venue.
+  The same installer works on any Ubuntu machine with sudo:
+
+  ```bash
+  cd ~/Project1
+  sudo ./deploy/install_session_keeper_on_optimus.sh <robot-event-ip> agi --password <pw>
+  ```
+
+  (Remove it after the event with `--remove <robot-event-ip>` if the
+  robot's event IP won't be reused.) Also install the robot's service
+  with `--idle-exit 0` for event days so there is no idle timer.
+- **No webserver at all** still works: copy
+  `cooper_control_panel.html` onto the tablet/notebook and open it
+  straight from a folder in the browser; type the robot's event IP in
+  ⚙ Settings.
+
+## C. Uninstall / decommission a robot
 
 Before returning or repurposing a robot, remove everything the panel
 installed with one command (no sudo needed — everything is user-level):
@@ -280,7 +340,7 @@ own procedure. Remember also to remove the robot's IP from ⚙ Settings
 on the panel devices, and to forget Wi-Fi / delete SSH keys per your
 own handover checklist.
 
-## E. Show-day checklist
+## D. Show-day checklist
 
 1. Power Cooper on; wait for boot.
 2. Open the panel → the status bar goes green by itself (on-demand start).

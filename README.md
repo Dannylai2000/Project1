@@ -115,7 +115,7 @@ Features:
   everything from a robot before returning or repurposing it:
   processes, cron entries, systemd user units (incl. the PIN),
   lingering, logs, and the code directory itself, with a final
-  verification. See DEPLOYMENT.md section D.
+  verification. See DEPLOYMENT.md section C.
 - **Self-healing & no-SSH maintenance** — each robot heals itself: a
   cron watchdog (cron installs) or a systemd user timer (socket
   installs) checks every minute, clears failed states, and revives the
