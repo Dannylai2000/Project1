@@ -5,6 +5,8 @@ full contract of the control API in between.
 
 ## A. The layers
 
+![Architecture diagram](docs/architecture.svg)
+
 ```
 ┌─────────────────────┐   HTTP GET (page load only)
 │  iPad / PC browser  │◄───────────────────────────────┐
@@ -45,8 +47,8 @@ straight from the browser to the robot's API — optimus being down does
 not affect a panel that is already open, and the same page file can be
 opened from a folder at events with no webserver at all.
 
-There are two robots (primary 192.168.68.54, secondary configurable,
-e.g. 192.168.68.113). Each runs its own identical API and keeps its own
+There are two robots (primary and secondary, both configurable in the
+panel's Settings — e.g. 192.168.68.115 and 192.168.68.113). Each runs its own identical API and keeps its own
 config files; the panel's Active-robot selector just changes which base
 URL the browser talks to.
 
