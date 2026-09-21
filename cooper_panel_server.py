@@ -8,6 +8,7 @@ webpage (hosted on optimus) talks to:
     GET  /api/actions       → one-tap gestures
     GET  /api/shortlist     → shared shortlist + per-dance play times
     GET  /api/messages      → this robot's message groups (shared by devices)
+    GET  /api/event         → this robot's pre-configured event
     POST /api/dance         → {"key": "..."} start that dance now
     POST /api/listening     → {"listen": true|false} mic on / off
     POST /api/speaker       → {"on": true|false} speaker on / muted
@@ -16,6 +17,8 @@ webpage (hosted on optimus) talks to:
     POST /api/messages      → save the message groups on this robot
     POST /api/songs_seen    → acknowledge new songs
     POST /api/show          → run the full showroom sequence
+    POST /api/event_config  → save the event (opening / message / closing)
+    POST /api/event         → play the pre-configured event now
     POST /api/restart       → restart the API (watchdog/socket revives it)
     POST /api/update        → git pull on the robot, then restart
 
@@ -71,7 +74,7 @@ LOGGER = logging.getLogger("cooper_panel")
 # Bumped on every change, in lockstep with PANEL_VERSION in
 # cooper_control_panel.html. The panel shows both and flags a mismatch,
 # so a half-deployed update is visible at a glance.
-SERVER_VERSION = "2026.09.16-7"
+SERVER_VERSION = "2026.09.21-8"
 
 # For the health report's uptime figure.
 SERVER_STARTED = time.time()
@@ -96,6 +99,10 @@ SHOW_SCRIPT     = Path(__file__).resolve().parent / "x2_showroom_demo.py"
 
 # Gestures run in their own program, invoked per Action press.
 ACTION_SCRIPT   = Path(__file__).resolve().parent / "x2_action.py"
+
+# The special-event moment (opening gesture → message → closing gesture)
+# also runs in its own program, invoked per ▶ Play event press.
+EVENT_SCRIPT    = Path(__file__).resolve().parent / "x2_event.py"
 
 # Shared panel settings (dance shortlist + play times), one file for all
 # devices, stored next to the server on Cooper.
@@ -984,6 +991,65 @@ class ShowRunner:
         return out if len(out) > 1 else None
 
 
+class EventRunner:
+    """Runs the pre-configured special-event moment (x2_event.py).
+
+    Opening gesture → event message (TTS) → closing gesture, in its own
+    program so a crash cannot take the API down. While the message plays
+    the microphone is muted (Cooper must not hear itself) and restored
+    afterwards — unless Cooper is geared up, where the mic is left alone,
+    the same rule the full show follows.
+    """
+
+    def __init__(self, node: CooperPanelNode) -> None:
+        self._node = node
+        self._proc: subprocess.Popen | None = None
+        self._lock = threading.Lock()
+
+    def running(self) -> bool:
+        with self._lock:
+            return self._proc is not None and self._proc.poll() is None
+
+    def start(self, opening: dict | None, message: str,
+              closing: dict | None) -> dict:
+        t0 = time.perf_counter()
+        with self._lock:
+            if self._proc is not None and self._proc.poll() is None:
+                raise RuntimeError("an event is already playing")
+
+            # Mute before the speech starts so Cooper does not answer its
+            # own event message; restored when the event program exits.
+            was_listening = False
+            if (message and not self._node.mic_geared
+                    and self._node.listening_state is True):
+                with suppress(Exception):
+                    self._node.set_listening(False)
+                    was_listening = True
+
+            cmd = [sys.executable, str(EVENT_SCRIPT)]
+            if opening:
+                cmd += ["--opening-motion", str(opening["motion"]),
+                        "--opening-area", str(opening["area"])]
+            if message:
+                cmd += ["--message", message]
+            if closing:
+                cmd += ["--closing-motion", str(closing["motion"]),
+                        "--closing-area", str(closing["area"])]
+            LOGGER.info("Starting event: %s", " ".join(cmd))
+            self._proc = subprocess.Popen(cmd)
+            proc = self._proc
+
+        def watch() -> None:
+            proc.wait()
+            LOGGER.info("Event finished (exit code %s)", proc.returncode)
+            if was_listening:
+                with suppress(Exception):
+                    self._node.set_listening(True)
+
+        threading.Thread(target=watch, name="event-watch", daemon=True).start()
+        return {"launch_ms": round((time.perf_counter() - t0) * 1000, 1)}
+
+
 class PanelConfig:
     """Panel settings shared by all devices, persisted as a JSON file."""
 
@@ -1080,6 +1146,44 @@ class PanelConfig:
             self._path.write_text(json.dumps(data, indent=2))
         LOGGER.info("Show dance set to %r", key or "(script default)")
         return key
+
+    # The pre-configured special-event moment (Event card on the panel).
+    MAX_EVENT_MSG = 1000
+
+    def get_event(self) -> dict:
+        """{"opening": action key, "message": text, "closing": action key}."""
+        with self._lock:
+            try:
+                data = json.loads(self._path.read_text())
+            except (OSError, json.JSONDecodeError):
+                data = {}
+        ev = data.get("event")
+        if not isinstance(ev, dict):
+            ev = {}
+        return {
+            "opening": str(ev.get("opening") or "")[: self.MAX_KEY_LEN],
+            "message": str(ev.get("message") or "")[: self.MAX_EVENT_MSG],
+            "closing": str(ev.get("closing") or "")[: self.MAX_KEY_LEN],
+        }
+
+    def set_event(self, opening, message, closing) -> dict:
+        cleaned = {
+            "opening": str(opening or "").strip()[: self.MAX_KEY_LEN],
+            "message": str(message or "").strip()[: self.MAX_EVENT_MSG],
+            "closing": str(closing or "").strip()[: self.MAX_KEY_LEN],
+        }
+        with self._lock:
+            try:
+                data = json.loads(self._path.read_text())
+            except (OSError, json.JSONDecodeError):
+                data = {}
+            data["event"] = cleaned
+            self._path.write_text(
+                json.dumps(data, ensure_ascii=False, indent=2))
+        LOGGER.info("Event saved: opening=%r closing=%r message=%d chars",
+                    cleaned["opening"], cleaned["closing"],
+                    len(cleaned["message"]))
+        return cleaned
 
     def get_seen_songs(self) -> list[str] | None:
         """Song keys every device has already been shown. None = never set."""
@@ -1360,9 +1464,10 @@ def health_report(node: CooperPanelNode, config: PanelConfig, pin: str) -> list[
             "performance may have no sound")
 
     # Files the panel needs on disk.
-    missing = [p.name for p in (SHOW_SCRIPT, ACTION_SCRIPT) if not p.exists()]
-    add("files", "Show & gesture programs", not missing,
-        "x2_showroom_demo.py and x2_action.py present" if not missing
+    missing = [p.name for p in (SHOW_SCRIPT, ACTION_SCRIPT, EVENT_SCRIPT)
+               if not p.exists()]
+    add("files", "Show, gesture & event programs", not missing,
+        "x2_showroom_demo.py, x2_action.py and x2_event.py present" if not missing
         else "missing: " + ", ".join(missing),
         "" if not missing else "run git pull in ~/cooper on Cooper")
 
@@ -1393,7 +1498,8 @@ def self_service_names(node):
 
 def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str,
                  config: PanelConfig, library: LibraryWatcher,
-                 messages: MessagesStore, last_activity: list):
+                 messages: MessagesStore, last_activity: list,
+                 events: EventRunner):
     class Handler(BaseHTTPRequestHandler):
         server_version = "CooperPanel/1.0"
 
@@ -1457,6 +1563,7 @@ def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str,
                     "mic_geared": node.mic_geared,
                     "mic_source": node.mic_source_state,
                     "show_running": shows.running(),
+                    "event_running": events.running(),
                     "pin_required": bool(pin),
                     "library_size": library_size,
                     "new_songs": new_songs,
@@ -1481,6 +1588,9 @@ def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str,
                                         "show_dance": config.get_show_dance()})
             if self.path == "/api/messages":
                 return self._send_json({"ok": True, **messages.get()})
+            if self.path == "/api/event":
+                return self._send_json({"ok": True, **config.get_event(),
+                                        "event_running": events.running()})
             if self.path == "/api/actions":
                 actions = [
                     {"key": k, "label": a["label"], "emoji": a["emoji"]}
@@ -1626,13 +1736,60 @@ def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str,
                     if shows.running():
                         return self._send_json(
                             {"ok": False, "error": "a show is running — wait for it to finish"}, 409)
+                    if events.running():
+                        return self._send_json(
+                            {"ok": False, "error": "an event is playing — wait for it to finish"}, 409)
                     # Gestures execute in their own program (x2_action.py).
                     timing = run_action(action["motion"], action["area"])
                     timing["server_total_ms"] = server_ms()
                     return self._send_json({"ok": True, "action": action["label"],
                                             "timing": timing})
 
+                if self.path == "/api/event_config":
+                    for field in ("opening", "closing"):
+                        key = str(body.get(field) or "").strip()
+                        if key and key not in ACTIONS:
+                            return self._send_json(
+                                {"ok": False,
+                                 "error": f"unknown {field} action {key!r}"}, 400)
+                    saved = config.set_event(body.get("opening"),
+                                             body.get("message"),
+                                             body.get("closing"))
+                    return self._send_json({"ok": True, **saved})
+
+                if self.path == "/api/event":
+                    if shows.running():
+                        return self._send_json(
+                            {"ok": False, "error": "a show is running — wait for it to finish"}, 409)
+                    if events.running():
+                        return self._send_json(
+                            {"ok": False, "error": "an event is already playing"}, 409)
+                    ev = config.get_event()
+                    if not (ev["opening"] or ev["message"] or ev["closing"]):
+                        return self._send_json(
+                            {"ok": False,
+                             "error": "no event configured on this robot — "
+                                      "set the opening action, message or "
+                                      "closing action in the Event card and "
+                                      "press 💾 Save event"}, 400)
+                    opening = ACTIONS.get(ev["opening"]) if ev["opening"] else None
+                    closing = ACTIONS.get(ev["closing"]) if ev["closing"] else None
+                    if (ev["opening"] and opening is None) or \
+                            (ev["closing"] and closing is None):
+                        return self._send_json(
+                            {"ok": False,
+                             "error": "the saved event uses an action this "
+                                      "API no longer knows — re-save the "
+                                      "Event card"}, 400)
+                    timing = events.start(opening, ev["message"], closing)
+                    timing["server_total_ms"] = server_ms()
+                    return self._send_json({"ok": True, "event_running": True,
+                                            "timing": timing})
+
                 if self.path == "/api/show":
+                    if events.running():
+                        return self._send_json(
+                            {"ok": False, "error": "an event is playing — wait for it to finish"}, 409)
                     greeting, intro, thank_you, goodbye = \
                         resolve_messages(body, messages)
                     skip_dance = bool(body.get("skip_dance", False))
@@ -1759,6 +1916,7 @@ def main() -> None:
                        "--mic-external", str(args.mic_external),
                        "--mic-internal", str(args.mic_internal)]
     shows = ShowRunner(node, extra_args=show_extra)
+    events = EventRunner(node)
     config = PanelConfig(CONFIG_FILE)
     library = LibraryWatcher(node, config, args.library_poll)
     library.start_polling()
@@ -1766,7 +1924,7 @@ def main() -> None:
 
     last_activity = [time.time()]
     handler = make_handler(node, shows, args.pin, config, library, messages,
-                           last_activity)
+                           last_activity, events)
 
     # systemd socket activation: inherit the already-listening socket (fd 3)
     # so the server only runs while someone is actually using the panel.
@@ -1784,7 +1942,8 @@ def main() -> None:
             while True:
                 time.sleep(5.0)
                 idle_s = time.time() - last_activity[0]
-                if idle_s > args.idle_exit * 60 and not shows.running():
+                if (idle_s > args.idle_exit * 60 and not shows.running()
+                        and not events.running()):
                     LOGGER.info("No requests for %.0f min — exiting "
                                 "(next connection starts the server again)",
                                 args.idle_exit)

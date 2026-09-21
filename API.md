@@ -80,12 +80,13 @@ or `"ok": false` with an `"error"` string.
 | Endpoint | Returns |
 |---|---|
 | `/` | Identification blurb (the page itself lives on optimus). |
-| `/api/status` | `version`, `listening` (true/false/null = unknown), `speaker`, `volume`, `mic_geared`, `mic_source` (1 in-built / 2 external / null, last verified), `show_running`, `pin_required`, `library_size`, `new_songs`, `show_timing` (live show milestones). Polled every 3 s. |
+| `/api/status` | `version`, `listening` (true/false/null = unknown), `speaker`, `volume`, `mic_geared`, `mic_source` (1 in-built / 2 external / null, last verified), `show_running`, `event_running`, `pin_required`, `library_size`, `new_songs`, `show_timing` (live show milestones). Polled every 3 s. |
 | `/api/health` | `checks`: list of `{id, label, ok(true/false/null=warn), detail, fix}` — the 🩺 Diagnose checklist (API process, start-after-reboot, AimDK services, files, PIN, …). |
 | `/api/dances` | `dances`: `[{key, name, version, duration, is_new}]` — live LinkCraft library. `key` is the LinkCraft resource ID (per robot!), `name` the human title, `duration` the measured song length in s or null. |
 | `/api/shortlist` | `shortlist` (ticked keys), `times` (`{key: seconds}`, 999 = full song), `show_dance` (the configured dance key). |
 | `/api/messages` | `active` group name + `groups`: `{name: {guestName, greetAM, greetPM, introMsg, thankYouMsg, goodbyeMsg}}` — this robot's message store. |
 | `/api/actions` | `actions`: `[{key, label, emoji}]` for the gesture dropdown. |
+| `/api/event` | `opening` (action key), `message`, `closing` (action key) — this robot's pre-configured event — plus `event_running`. |
 
 ### Control (POST, PIN required via `X-Pin`)
 
@@ -100,6 +101,8 @@ or `"ok": false` with an `"error"` string.
 | `/api/show` | `{"unmute_after": bool}` (texts optional — see below) | Launches `x2_showroom_demo.py`. Refuses (400) when no show dance is configured on this robot or the configured key is not in this robot's library. |
 | `/api/shortlist` | any of `shortlist`, `times`, `show_dance` | Save the per-robot dance settings. |
 | `/api/messages` | `{"active": name, "groups": {...}}` | Replace this robot's message store (sanitized: ≤20 groups, field whitelist, 500-char texts). |
+| `/api/event_config` | `{"opening": key, "message": text, "closing": key}` | Save this robot's event (each part optional; action keys validated, message ≤1000 chars). |
+| `/api/event` | `{}` | Play the pre-configured event via `x2_event.py`: opening gesture → message (TTS) → closing gesture. The mic is muted while the message plays (unless geared up) and restored after. 400 when nothing is configured; 409 while a show or another event runs. |
 | `/api/songs_seen` | `{}` | Acknowledge the ✨ new-song alert. |
 | `/api/restart` | `{}` | API exits; the robot's watchdog/socket revives it in seconds. 409 during a show. |
 | `/api/update` | `{}` | `git pull --ff-only` on the robot, then restart when something changed. Returns the pull output. 409 during a show. |
@@ -154,7 +157,7 @@ not share these):
 
 | File | Contents |
 |---|---|
-| `cooper_panel_config.json` | dance shortlist, per-song play times, show dance key, seen-songs list. |
+| `cooper_panel_config.json` | dance shortlist, per-song play times, show dance key, seen-songs list, the pre-configured event (opening action, message, closing action). |
 | `cooper_messages.json` | message groups + active group. |
 | `cooper_show_timing.json` | live milestones of the current/last show (for diagnostics). |
 | `deploy/.panel_env` | PIN + port for the wrapper (private to the user). |
