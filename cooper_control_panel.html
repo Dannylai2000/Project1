@@ -388,6 +388,30 @@
   </section>
 
   <section>
+    <h2>Event</h2>
+    <div class="hint">A pre-configured special-event moment: Cooper plays
+      the opening action, speaks the event message, then plays the closing
+      action. Stored on the connected robot, shared by every device.</div>
+    <div class="row audioRow">
+      <span class="audioName">Opening</span>
+      <select id="evOpen"><option value="">— no opening action —</option></select>
+    </div>
+    <div class="field">
+      <label for="evMsg">Event message</label>
+      <textarea id="evMsg" placeholder="What Cooper says between the two actions (blank = actions only)"></textarea>
+    </div>
+    <div class="row audioRow">
+      <span class="audioName">Closing</span>
+      <select id="evClose"><option value="">— no closing action —</option></select>
+    </div>
+    <div class="row">
+      <button class="secondary" id="evSave">💾 Save event</button>
+      <button id="evPlay">▶ Play event</button>
+    </div>
+    <div class="hint" id="evState">—</div>
+  </section>
+
+  <section>
     <h2>Performance</h2>
     <div class="row" id="newNotice" style="display:none">
       <span id="newNoticeText">✨ New dance songs from LinkCraft</span>
@@ -548,6 +572,17 @@
       😘 Blow kiss. Gestures move the robot only — no speech, and the
       microphone is not affected. Execute is disabled while a full show is
       running so gestures cannot interrupt the performance.</p>
+
+      <h3>Event</h3>
+      <p>A pre-configured moment for special occasions: an <b>opening
+      action</b>, an <b>event message</b> Cooper speaks, and a <b>closing
+      action</b> — any part can be left out. Pick the actions from the same
+      list as the Actions card, type the message, press <b>💾 Save
+      event</b> (it is stored on the connected robot, so every device
+      shares it and each robot keeps its own event), then <b>▶ Play
+      event</b> runs the sequence. While the message plays the microphone
+      is muted so Cooper does not answer itself, and restored afterwards.
+      Play is disabled while a show is running, and vice versa.</p>
 
       <h3>Performance</h3>
       <ul>
@@ -730,10 +765,11 @@
 (() => {
   const $ = id => document.getElementById(id);
   let showRunning = false;
+  let eventRunning = false;
 
   // Bumped on every change, in lockstep with SERVER_VERSION in
   // cooper_panel_server.py. Shown top-right; amber = page and API differ.
-  const PANEL_VERSION = "2026.09.16-7";
+  const PANEL_VERSION = "2026.09.21-8";
   $("verChip").textContent = "v" + PANEL_VERSION;
 
   function status(msg, cls = "") {
@@ -1153,13 +1189,16 @@
       : "connected";
 
     showRunning = !!s.show_running;
-    $("runShow").disabled = showRunning;
-    $("playDance").disabled = showRunning;
+    // An older API doesn't report event_running — treat it as false there
+    // (the Event card itself tells the user to update).
+    eventRunning = s.event_running === true;
+    $("runShow").disabled = showRunning || eventRunning;
+    $("playDance").disabled = showRunning || eventRunning;
     setActionButtonsEnabled();
     $("runShow").textContent = showRunning ? "⏳ Show running…" : "▶ Run full show";
 
-    // Microphone radios (the show controls the mic while it runs).
-    $("micOn").disabled = $("micOff").disabled = showRunning;
+    // Microphone radios (the show / event controls the mic while it runs).
+    $("micOn").disabled = $("micOff").disabled = showRunning || eventRunning;
     $("micOn").checked = s.listening === true;
     $("micOff").checked = s.listening === false;
     $("micState").textContent =
@@ -1255,6 +1294,7 @@
       status("Connected to Cooper.", "ok");
       startPolling();
       await Promise.all([refreshDances(), loadActions(), fetchMessages()]);
+      await loadEventConfig();  // needs the action lists loaded first
     } catch (e) {
       $("connDot").className = "dot off";
       $("connText").textContent = "offline";
@@ -1423,9 +1463,13 @@
 
   // ── actions: one dropdown + Execute (runs x2_action.py on the server) ──
   function setActionButtonsEnabled() {
-    const off = showRunning || !online;
+    const off = showRunning || eventRunning || !online;
     $("actionRun").disabled = off;
     $("actionSel").disabled = off;
+    $("evPlay").disabled = off;
+    $("evPlay").textContent = eventRunning ? "⏳ Event playing…" : "▶ Play event";
+    $("evSave").disabled = !online;
+    $("evOpen").disabled = $("evClose").disabled = $("evMsg").disabled = !online;
   }
 
   async function loadActions() {
@@ -1442,6 +1486,26 @@
       }
       if (previous && [...sel.options].some(o => o.value === previous)) {
         sel.value = previous;
+      }
+      // The Event card's opening/closing dropdowns offer the same actions,
+      // plus a "none" choice.
+      for (const id of ["evOpen", "evClose"]) {
+        const esel = $(id);
+        const prev = esel.value;
+        esel.innerHTML = "";
+        const none = document.createElement("option");
+        none.value = "";
+        none.textContent = id === "evOpen"
+          ? "— no opening action —" : "— no closing action —";
+        esel.appendChild(none);
+        for (const a of actions) {
+          const o = document.createElement("option");
+          o.value = a.key;
+          o.textContent = `${a.emoji} ${a.label}`;
+          esel.appendChild(o);
+        }
+        esel.value = prev;
+        if (esel.selectedIndex < 0) esel.selectedIndex = 0;
       }
       setActionButtonsEnabled();
     } catch (e) {
@@ -1466,6 +1530,91 @@
     } finally {
       $("actionRun").disabled = showRunning || !online;
     }
+  });
+
+  // ── Event: opening action → message → closing action ───────────────────
+  // Pre-configured on the connected robot (cooper_panel_config.json), so
+  // every device plays the same event. Runs x2_event.py on the server.
+  let evDirty = false;
+
+  function evRobotName() {
+    return activeRobot === "secondary" ? "secondary robot" : "primary robot";
+  }
+
+  function evSetState(text, cls) {
+    $("evState").textContent = text;
+    $("evState").className = "hint" + (cls ? " " + cls : "");
+  }
+
+  function evMarkDirty() {
+    evDirty = true;
+    evSetState("Changes not saved yet — press 💾 Save event.", "warn");
+  }
+  $("evOpen").addEventListener("change", evMarkDirty);
+  $("evClose").addEventListener("change", evMarkDirty);
+  $("evMsg").addEventListener("input", evMarkDirty);
+
+  async function loadEventConfig() {
+    try {
+      const ev = await api("/api/event");
+      $("evMsg").value = ev.message || "";
+      for (const [id, key] of [["evOpen", ev.opening || ""],
+                               ["evClose", ev.closing || ""]]) {
+        const sel = $(id);
+        sel.value = key;
+        if (sel.selectedIndex < 0) sel.selectedIndex = 0;
+      }
+      evDirty = false;
+      if (ev.opening || ev.message || ev.closing) {
+        evSetState(`✓ Event loaded from the ${evRobotName()} (${activeAddr()}).`, "ok");
+      } else {
+        evSetState(`No event configured on the ${evRobotName()} yet — ` +
+                   "pick the actions, type the message, press 💾 Save event.", "");
+      }
+    } catch (e) {
+      evSetState("The Event card needs an API update on Cooper " +
+                 "(🩺 Diagnose → ⬆ Update & restart).", "warn");
+    }
+  }
+
+  $("evSave").addEventListener("click", async () => {
+    $("evSave").disabled = true;
+    evSetState("Saving…", "");
+    try {
+      await api("/api/event_config", {
+        method: "POST",
+        body: JSON.stringify({
+          opening: $("evOpen").value,
+          message: $("evMsg").value.trim(),
+          closing: $("evClose").value,
+        }),
+      });
+      evDirty = false;
+      evSetState(`✓ Event saved on the ${evRobotName()} (${activeAddr()}).`, "ok");
+      status("Event saved.", "ok");
+    } catch (e) {
+      evSetState(`Saving failed: ${e.message}`, "warn");
+      status(`Saving the event failed: ${e.message}`, "err");
+    } finally {
+      $("evSave").disabled = !online;
+    }
+  });
+
+  $("evPlay").addEventListener("click", async () => {
+    if (evDirty) {
+      status("Save the event first — press 💾 Save event.", "err");
+      return;
+    }
+    $("evPlay").disabled = true;
+    try {
+      const data = await api("/api/event", { method: "POST", body: "{}" });
+      logDiag("Event", data);
+      eventRunning = true;
+      status("Event playing: opening action → message → closing action.", "ok");
+    } catch (e) {
+      status(`Event failed: ${e.message}`, "err");
+    }
+    setActionButtonsEnabled();
   });
 
   // The robot's dance service (GetRobotResources) belongs to AgiBot's own
