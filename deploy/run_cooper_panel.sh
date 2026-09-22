@@ -21,8 +21,10 @@ export COOPER_PANEL_PIN="${COOPER_PANEL_PIN:-}"
 
 # shellcheck disable=SC1091
 source /opt/ros/humble/setup.bash
+# AimDK overlay: the installer detects its location per robot and stores it
+# in .panel_env (COOPER_AIMDK_SETUP); the classic path is the fallback.
 # shellcheck disable=SC1091
-source "$HOME/aimdk/install/setup.bash"
+source "${COOPER_AIMDK_SETUP:-$HOME/aimdk/install/setup.bash}"
 # Optional extra workspace: create deploy/extra_setup.bash with its source line.
 # shellcheck disable=SC1091
 [ -f "$APP_DIR/deploy/extra_setup.bash" ] && . "$APP_DIR/deploy/extra_setup.bash"

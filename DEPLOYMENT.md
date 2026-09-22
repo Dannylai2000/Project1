@@ -36,6 +36,19 @@ cd ~/cooper
 (With root available, `sudo ./deploy/install_cooper_service.sh` offers
 the same modes as a system service.)
 
+The installer needs the **AimDK ROS overlay** (the workspace that
+provides `aimdk_msgs`). It looks at `~/aimdk/install/setup.bash` first
+and otherwise searches the robot for it — the location differs between
+robots, and a wrong path shows up as `ModuleNotFoundError: No module
+named 'aimdk_msgs'` in the service journal. If the search fails, find it
+by hand and pass it explicitly:
+
+```bash
+find / -maxdepth 7 -type d -name aimdk_msgs 2>/dev/null
+./deploy/install_cooper_service_nosudo.sh --pin 2468 \
+    --aimdk-setup /path/to/install/setup.bash
+```
+
 ### 3. Service modes
 
 Replace `2468` with the real panel PIN. Modes:
