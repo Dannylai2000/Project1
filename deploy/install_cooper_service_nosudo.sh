@@ -4,6 +4,12 @@
 #   ./deploy/install_cooper_service_nosudo.sh --pin 2468               # on-demand
 #   ./deploy/install_cooper_service_nosudo.sh --pin 2468 --idle-exit 0 # never auto-stops
 #   ./deploy/install_cooper_service_nosudo.sh --pin 2468 --cron        # force cron fallback
+#   ./deploy/install_cooper_service_nosudo.sh --pin 2468 \
+#       --aimdk-setup /path/to/install/setup.bash   # non-standard AimDK location
+#
+# The AimDK ROS overlay (provides the aimdk_msgs Python package) is looked
+# for at ~/aimdk/install/setup.bash; when it is not there, the installer
+# searches the disk for it — robots differ. --aimdk-setup overrides both.
 #
 # Prefers systemd USER units (~/.config/systemd/user — no root needed),
 # keeping on-demand socket activation. If user systemd is unavailable,
@@ -20,6 +26,7 @@ PIN=""
 PORT=8080
 IDLE_EXIT=30
 FORCE_CRON=0
+AIMDK_SETUP=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -27,6 +34,7 @@ while [[ $# -gt 0 ]]; do
     --port) PORT="$2"; shift 2 ;;
     --idle-exit) IDLE_EXIT="$2"; shift 2 ;;
     --cron) FORCE_CRON=1; shift ;;
+    --aimdk-setup) AIMDK_SETUP="$2"; shift 2 ;;
     -h|--help) grep '^#' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown option: $1" >&2; exit 1 ;;
   esac
@@ -34,13 +42,43 @@ done
 
 APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 ROS_SETUP="/opt/ros/humble/setup.bash"
-AIMDK_SETUP="$HOME/aimdk/install/setup.bash"
+
+# The AimDK overlay: the workspace whose setup.bash puts aimdk_msgs on the
+# Python path. Its location differs between robots, so when the usual place
+# is empty, hunt for a directory named aimdk_msgs inside an ament install
+# tree (…/install/aimdk_msgs next to …/install/setup.bash).
+detect_aimdk_setup() {
+  [[ -f "$HOME/aimdk/install/setup.bash" ]] && {
+    echo "$HOME/aimdk/install/setup.bash"; return 0; }
+  local d
+  while IFS= read -r d; do
+    if [[ -f "$(dirname "$d")/setup.bash" ]]; then
+      echo "$(dirname "$d")/setup.bash"; return 0
+    fi
+  done < <(find "$HOME" /opt /agibot -maxdepth 6 -type d -name aimdk_msgs \
+             2>/dev/null)
+  return 1
+}
+
+if [[ -n "$AIMDK_SETUP" ]]; then
+  [[ -f "$AIMDK_SETUP" ]] || {
+    echo "ERROR: --aimdk-setup $AIMDK_SETUP does not exist." >&2; exit 1; }
+elif ! AIMDK_SETUP="$(detect_aimdk_setup)"; then
+  echo "ERROR: cannot find the AimDK overlay (aimdk_msgs) on this robot." >&2
+  echo "Looked at ~/aimdk/install/setup.bash and searched \$HOME, /opt and" >&2
+  echo "/agibot. Find it by hand, then re-run with:" >&2
+  echo "  find / -maxdepth 7 -type d -name aimdk_msgs 2>/dev/null" >&2
+  echo "  $0 --pin <pin> --aimdk-setup <that install dir>/setup.bash" >&2
+  exit 1
+fi
 
 echo "App dir: $APP_DIR"
 echo "Port:    $PORT"
+echo "AimDK:   $AIMDK_SETUP"
 
-# Store PIN/port for the wrapper script (cron mode); private to this user.
-printf 'COOPER_PANEL_PIN=%q\nCOOPER_PANEL_PORT=%q\n' "$PIN" "$PORT" \
+# Store PIN/port/AimDK path for the wrapper script; private to this user.
+printf 'COOPER_PANEL_PIN=%q\nCOOPER_PANEL_PORT=%q\nCOOPER_AIMDK_SETUP=%q\n' \
+  "$PIN" "$PORT" "$AIMDK_SETUP" \
   > "$APP_DIR/deploy/.panel_env"
 chmod 600 "$APP_DIR/deploy/.panel_env"
 chmod +x "$APP_DIR/deploy/run_cooper_panel.sh"
@@ -64,7 +102,7 @@ Description=Cooper Control Panel API
 [Service]
 WorkingDirectory=$APP_DIR
 Environment=COOPER_PANEL_PIN=$PIN
-ExecStart=/bin/bash -lc 'source $ROS_SETUP && source $AIMDK_SETUP && if [ -f $APP_DIR/deploy/extra_setup.bash ]; then source $APP_DIR/deploy/extra_setup.bash; fi; exec python3 cooper_panel_server.py --port $PORT$IDLE_ARG'
+ExecStart=/bin/bash -lc 'source $ROS_SETUP; source $AIMDK_SETUP; if [ -f $APP_DIR/deploy/extra_setup.bash ]; then source $APP_DIR/deploy/extra_setup.bash; fi; exec python3 cooper_panel_server.py --port $PORT$IDLE_ARG'
 
 [Install]
 WantedBy=default.target
