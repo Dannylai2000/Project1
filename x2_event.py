@@ -54,10 +54,13 @@ POST_TTS_GRACE_S = 0.8
 # The TTS engine only ESTIMATES the speech duration, and the estimate can
 # overshoot by many seconds — waiting it out fully left a long dead pause
 # before the closing gesture. So the closing gesture is launched this many
-# seconds BEFORE the estimated end of the message: an accurate estimate
-# overlaps the gesture with the last words (the show's heart-while-speaking
-# feel), an overshot one keeps the pause well under 5 s.
-CLOSING_LEAD_S = 4.0
+# seconds BEFORE the estimated end of the message. Measured on-site: with
+# a 4 s lead the gesture still came ~5 s after the last word (≈9 s
+# overshoot on the show-suite message), so 7 s targets a ~2 s pause. A
+# short message simply gets the gesture during its final words — that is
+# fine (the show does its heart while speaking too). Tune per robot with
+# --closing-lead.
+CLOSING_LEAD_S = 7.0
 
 
 def run_gesture(node: Node, client, mc_action_service: str,
