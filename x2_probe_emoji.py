@@ -105,8 +105,16 @@ def main() -> int:
             done = threading.Event()
             future.add_done_callback(lambda _: done.set())
             if done.wait(3.0) and future.done():
-                reply = str(future.result()).replace("\n", " ")
-                print(f"emoji {emoji_id}: reply {reply[:160]}")
+                resp = future.result()
+                success = getattr(resp, "success", None)
+                message = str(getattr(resp, "message", "") or "").strip()
+                state = code = None
+                with suppress(Exception):
+                    state = int(resp.header.status.value)
+                with suppress(Exception):
+                    code = int(resp.header.header.code)
+                print(f"emoji {emoji_id}: success={success} state={state} "
+                      f"code={code}" + (f" msg={message!r}" if message else ""))
             else:
                 print(f"emoji {emoji_id}: no reply within 3 s")
             time.sleep(args.gap)
