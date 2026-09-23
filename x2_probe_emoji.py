@@ -53,8 +53,13 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Step through PlayEmoji IDs while you watch the face"
     )
-    parser.add_argument("--ids", default="1-30",
-                        help="IDs to try: ranges and lists, e.g. 1-30 or 1,2,7")
+    parser.add_argument("--ids",
+                        default="1,10,11,20,30,31,32,33,40,50,60,70,80,90,"
+                                "100,101,110,120,130,140,150,160,170,180,"
+                                "190,200,210,220",
+                        help="IDs to try: ranges and lists, e.g. 1-30 or "
+                             "1,2,7 (default = every ID in the PlayEmoji "
+                             "emotion enum)")
     parser.add_argument("--service", default=DEFAULT_PLAY_EMOJI_SVC)
     parser.add_argument("--gap", type=float, default=4.0,
                         help="seconds to watch the face between IDs")
@@ -86,9 +91,13 @@ def main() -> int:
             for holder in (req, getattr(req, "emoji_req", None)):
                 if holder is None:
                     continue
-                for field in ("emoji_id", "id"):
+                # This SDK build uses emotion_id + mode (1 once / 2 loop);
+                # older spellings kept as fallback.
+                for field in ("emotion_id", "emoji_id", "id"):
                     if hasattr(holder, field):
                         setattr(holder, field, int(emoji_id))
+                if hasattr(holder, "mode"):
+                    holder.mode = 2 if args.loop else 1
                 if hasattr(holder, "loop"):
                     holder.loop = bool(args.loop)
 
