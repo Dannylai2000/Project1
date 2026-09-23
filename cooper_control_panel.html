@@ -582,7 +582,9 @@
       shares it and each robot keeps its own event), then <b>▶ Play
       event</b> runs the sequence. While the message plays the microphone
       is muted so Cooper does not answer itself, and restored afterwards.
-      Play is disabled while a show is running, and vice versa.</p>
+      The closing action starts as the message is finishing (no long pause
+      after the last words). Play is disabled while a show is running, and
+      vice versa.</p>
 
       <h3>Performance</h3>
       <ul>
@@ -769,7 +771,7 @@
 
   // Bumped on every change, in lockstep with SERVER_VERSION in
   // cooper_panel_server.py. Shown top-right; amber = page and API differ.
-  const PANEL_VERSION = "2026.09.21-8";
+  const PANEL_VERSION = "2026.09.23-9";
   $("verChip").textContent = "v" + PANEL_VERSION;
 
   function status(msg, cls = "") {
