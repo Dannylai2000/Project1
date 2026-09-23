@@ -135,7 +135,7 @@ AimDK's ROS2 services (all under `/aimdk_5Fmsgs/srv/`):
 | `GetMicSourceRequest` | verification read-back after every mic switch. |
 | `GetRobotResources` | `/api/dances` — LinkCraft library (name from `current_version.name`). |
 | `ExecuteActionResource` | starting a LinkCraft dance (meta `BODY_MONTION`/`ARM_MONTION`). |
-| `SetMcPresetMotion` | gestures (wave 1002, handshake 1003, airkiss 1004, heart 1007) via `x2_action.py` and the show. |
+| `SetMcPresetMotion` | gestures via `x2_action.py` and the show — the panel exposes the SDK's full McPresetMotion library (waves, handshake, heart 1007, bow 3001, salute 1013, photo poses, nod/shake head, …; see `/api/actions`). Area is a bitmask: 1 left hand, 2 right, 3 both, 4 head, 8 waist. |
 | `SetMcAction` | `STAND_DEFAULT` — required to leave dance mode before preset motions (the show does this before the closing heart). |
 | `PlayTts` | all spoken texts in the show. |
 | `PlayEmoji` | the face expression at welcome / dance / closing. |
