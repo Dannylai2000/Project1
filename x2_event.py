@@ -57,9 +57,13 @@ GESTURE_PLAY_S = 4.0
 MIN_MESSAGE_PAUSE_S = 1.0
 DEFAULT_MESSAGE_PAUSE_S = 2.0
 
-# Rough speaking rates for the text-based estimate: Latin text ~12 chars/s,
-# CJK ~4 characters/s.
-LATIN_CHARS_PER_S = 12.0
+# Speaking rates for the text-based estimate. Latin rate CALIBRATED on the
+# show-suite robot: a 563-char message took ~41 s to speak (journal,
+# 2026-09-23), i.e. ~13.7 chars/s; 14 errs slightly fast on purpose — an
+# estimate that runs short just starts the gesture on the last words, and
+# the panel's Pause field keeps full control, while one that runs long
+# adds dead air no pause setting can remove.
+LATIN_CHARS_PER_S = 14.0
 CJK_CHARS_PER_S = 4.0
 
 
