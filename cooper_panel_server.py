@@ -74,7 +74,7 @@ LOGGER = logging.getLogger("cooper_panel")
 # Bumped on every change, in lockstep with PANEL_VERSION in
 # cooper_control_panel.html. The panel shows both and flags a mismatch,
 # so a half-deployed update is visible at a glance.
-SERVER_VERSION = "2026.09.23-11"
+SERVER_VERSION = "2026.09.23-12"
 
 # For the health report's uptime figure.
 SERVER_STARTED = time.time()
@@ -1026,7 +1026,10 @@ class EventRunner:
                     self._node.set_listening(False)
                     was_listening = True
 
-            cmd = [sys.executable, str(EVENT_SCRIPT)]
+            # -u: unbuffered, so the event's progress lines reach the
+            # journal as they happen (buffered, they all appear at exit
+            # with one timestamp — useless for timing diagnostics).
+            cmd = [sys.executable, "-u", str(EVENT_SCRIPT)]
             if opening:
                 cmd += ["--opening-motion", str(opening["motion"]),
                         "--opening-area", str(opening["area"])]
