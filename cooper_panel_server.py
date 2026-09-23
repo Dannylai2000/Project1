@@ -74,7 +74,7 @@ LOGGER = logging.getLogger("cooper_panel")
 # Bumped on every change, in lockstep with PANEL_VERSION in
 # cooper_control_panel.html. The panel shows both and flags a mismatch,
 # so a half-deployed update is visible at a glance.
-SERVER_VERSION = "2026.09.23-13"
+SERVER_VERSION = "2026.09.23-14"
 
 # For the health report's uptime figure.
 SERVER_STARTED = time.time()
@@ -85,45 +85,23 @@ DEFAULT_SET_MUTE_SVC       = "/aimdk_5Fmsgs/srv/SetMute"
 DEFAULT_SET_VOLUME_SVC     = "/aimdk_5Fmsgs/srv/SetVolume"
 
 # One-tap gestures for the panel's Actions card and the Event selectors.
-# Motion IDs from the robot's own McPresetMotion enum (ros2 interface show,
-# 2026-09-23); areas are a bitmask (1 left hand, 2 right hand, 3 both,
-# 4 head, 8 waist). The first five are proven on the show-suite robots;
-# the rest come straight from the SDK enum — an unsupported one is simply
-# rejected by the robot with a clear panel message, nothing worse.
+# Motion IDs from the robot's McPresetMotion enum; areas are a bitmask
+# (1 left hand, 2 right hand, 3 both, 4 head, 8 waist). EVERY entry here
+# was verified live on the show-suite robots (x2_probe_area.py sweep,
+# 2026-09-23). The enum's other presets — 2001 turn-wave, the 3xxx
+# interaction moves (bow, thumbs-up, photo poses, …) and the 4xxx head
+# moves — are rejected by this firmware in every area, so they are
+# deliberately NOT listed; re-probe after a robot software update.
 ACTIONS = {
-    # Proven on Cooper:
     "shake_hand":   {"label": "Shake hand",          "emoji": "🤝", "motion": 1003, "area": 2},
     "heart":        {"label": "Heart sign",           "emoji": "🫶", "motion": 1007, "area": 3},
     "wave_goodbye": {"label": "Right-hand goodbye",   "emoji": "👋", "motion": 1002, "area": 2},
     "wave_left":    {"label": "Left-hand wave",       "emoji": "🖐️", "motion": 1002, "area": 1},
     "blow_kiss":    {"label": "Blow kiss",            "emoji": "😘", "motion": 1004, "area": 2},
-    # Hand / arm presets:
     "raise_hand":   {"label": "Raise hand",           "emoji": "✋", "motion": 1001, "area": 2},
     "clap":         {"label": "Clap hands",           "emoji": "👏", "motion": 1008, "area": 3},
     "fist_bump":    {"label": "Fist bump",            "emoji": "🤜", "motion": 1009, "area": 2},
     "salute":       {"label": "Salute",               "emoji": "🫡", "motion": 1013, "area": 2},
-    "turn_wave":    {"label": "Turn around & wave",   "emoji": "🔄", "motion": 2001, "area": 3},
-    # Interaction presets:
-    "bow":          {"label": "Bow",                  "emoji": "🙇", "motion": 3001, "area": 3},
-    "thumbs_up":    {"label": "Thumbs-up",            "emoji": "👍", "motion": 3002, "area": 2},
-    "peace":        {"label": "Peace sign",           "emoji": "✌️", "motion": 3003, "area": 2},
-    "heart_overhead": {"label": "Heart above head",   "emoji": "💗", "motion": 3004, "area": 3},
-    "sad":          {"label": "Sad pose",             "emoji": "😢", "motion": 3006, "area": 3},
-    "gentle_wave":  {"label": "Gentle wave",          "emoji": "🙋", "motion": 3007, "area": 2},
-    "hug":          {"label": "Hug",                  "emoji": "🤗", "motion": 3008, "area": 3},
-    "cross_x":      {"label": "Arms crossed X",       "emoji": "❌", "motion": 3009, "area": 3},
-    "chest_wave":   {"label": "Chest-height wave",    "emoji": "👐", "motion": 3010, "area": 2},
-    "cheer":        {"label": "Cheer",                "emoji": "💪", "motion": 3011, "area": 3},
-    "low_blow_kiss": {"label": "Low blow kiss",       "emoji": "😗", "motion": 3012, "area": 2},
-    "bass_dance1":  {"label": "Dance move 1",         "emoji": "🕺", "motion": 3013, "area": 3},
-    "bass_dance2":  {"label": "Dance move 2",         "emoji": "💃", "motion": 3014, "area": 3},
-    "high_five":    {"label": "High-five",            "emoji": "🖐", "motion": 3015, "area": 2},
-    "speak_gesture": {"label": "Talking gesture",     "emoji": "🗣️", "motion": 3016, "area": 2},
-    "photo_pose":   {"label": "Photo pose",           "emoji": "📸", "motion": 3018, "area": 3},
-    "photo_triple": {"label": "Triple photo pose",    "emoji": "🎞️", "motion": 3019, "area": 3},
-    # Head presets:
-    "nod":          {"label": "Nod",                  "emoji": "🙂", "motion": 4001, "area": 4},
-    "shake_head":   {"label": "Shake head",           "emoji": "🙅", "motion": 4002, "area": 4},
 }
 
 SHOW_SCRIPT     = Path(__file__).resolve().parent / "x2_showroom_demo.py"

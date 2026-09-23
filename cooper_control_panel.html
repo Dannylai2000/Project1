@@ -574,16 +574,16 @@
 
       <h3>Actions</h3>
       <p>Pick a gesture from the dropdown and press <b>▶ Execute</b> —
-      Cooper performs it immediately. The list carries the robot's full
-      preset library from the AgiBot SDK: waves, handshake, heart signs,
-      bow, salute, thumbs-up, photo poses, nod/shake head and more. The
-      first five (🤝 🫶 👋 🖐️ 😘) are proven on the show-suite robots;
-      the rest come straight from the SDK table, and one this robot's
-      firmware doesn't support is simply refused with a clear message —
-      try each once before using it in front of guests. Gestures move the
-      robot only — no speech, and the microphone is not affected. Execute
-      is disabled while a full show is running so gestures cannot
-      interrupt the performance.</p>
+      Cooper performs it immediately. Every gesture in the list is
+      verified live on the show-suite robots: 🤝 Shake hand, 🫶 Heart
+      sign, 👋 / 🖐️ right- and left-hand waves, 😘 Blow kiss, ✋ Raise
+      hand, 👏 Clap, 🤜 Fist bump and 🫡 Salute. (The SDK defines more —
+      bow, thumbs-up, photo poses, head moves — but the current robot
+      firmware rejects them; they can be re-probed with
+      <code>x2_probe_area.py</code> after a robot software update.)
+      Gestures move the robot only — no speech, and the microphone is not
+      affected. Execute is disabled while a full show is running so
+      gestures cannot interrupt the performance.</p>
 
       <h3>Event</h3>
       <p>A pre-configured moment for special occasions: an <b>opening
@@ -785,7 +785,7 @@
 
   // Bumped on every change, in lockstep with SERVER_VERSION in
   // cooper_panel_server.py. Shown top-right; amber = page and API differ.
-  const PANEL_VERSION = "2026.09.23-13";
+  const PANEL_VERSION = "2026.09.23-14";
   $("verChip").textContent = "v" + PANEL_VERSION;
 
   function status(msg, cls = "") {
