@@ -51,6 +51,14 @@ GESTURE_PLAY_S = 4.0
 # Extra silence after the TTS engine's estimated duration.
 POST_TTS_GRACE_S = 0.8
 
+# The TTS engine only ESTIMATES the speech duration, and the estimate can
+# overshoot by many seconds — waiting it out fully left a long dead pause
+# before the closing gesture. So the closing gesture is launched this many
+# seconds BEFORE the estimated end of the message: an accurate estimate
+# overlaps the gesture with the last words (the show's heart-while-speaking
+# feel), an overshot one keeps the pause well under 5 s.
+CLOSING_LEAD_S = 4.0
+
 
 def run_gesture(node: Node, client, mc_action_service: str,
                 motion: int, area: int, settle_s: float) -> bool:
@@ -74,8 +82,13 @@ def run_gesture(node: Node, client, mc_action_service: str,
     return False
 
 
-def speak(node: Node, tts_client, text: str) -> bool:
-    """Speak `text` and wait until the speech has played out."""
+def speak(node: Node, tts_client, text: str, early_by_s: float = 0.0) -> bool:
+    """Speak `text` and wait until the speech has (almost) played out.
+
+    `early_by_s` returns that many seconds before the estimated end of the
+    speech, so the caller can start the closing gesture while the last
+    words still play instead of after a possibly overshot estimate.
+    """
     req = PlayTts.Request()
     req.tts_req.text = text
     req.tts_req.domain = "x2-event"
@@ -100,8 +113,9 @@ def speak(node: Node, tts_client, text: str) -> bool:
     duration_s = float(response.tts_resp.estimated_duration) / 1000.0
     if duration_s <= 0.0:
         duration_s = max(2.0, len(text) / 12.0)
-    print(f"PlayTts accepted (~{duration_s:.1f}s)")
-    time.sleep(duration_s + POST_TTS_GRACE_S)
+    wait_s = max(0.0, duration_s + POST_TTS_GRACE_S - early_by_s)
+    print(f"PlayTts accepted (~{duration_s:.1f}s, waiting {wait_s:.1f}s)")
+    time.sleep(wait_s)
     return True
 
 
@@ -120,6 +134,9 @@ def main() -> int:
     parser.add_argument("--tts-service", default=DEFAULT_TTS_SERVICE)
     parser.add_argument("--stand-settle", type=float, default=8.0,
                         help="seconds Stable Stand needs before a retry")
+    parser.add_argument("--closing-lead", type=float, default=CLOSING_LEAD_S,
+                        help="start the closing gesture this many seconds "
+                             "before the estimated end of the message")
     parser.add_argument("--wait", type=float, default=5.0,
                         help="seconds to wait for each service")
     args = parser.parse_args()
@@ -162,7 +179,8 @@ def main() -> int:
                               opening[0], opening[1], args.stand_settle)
             time.sleep(OPENING_LEAD_S if message else GESTURE_PLAY_S)
         if message:
-            ok &= speak(node, tts_client, message)
+            ok &= speak(node, tts_client, message,
+                        early_by_s=args.closing_lead if closing else 0.0)
         if closing:
             ok &= run_gesture(node, motion_client, args.mc_action_service,
                               closing[0], closing[1], args.stand_settle)
