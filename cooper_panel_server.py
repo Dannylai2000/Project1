@@ -74,7 +74,7 @@ LOGGER = logging.getLogger("cooper_panel")
 # Bumped on every change, in lockstep with PANEL_VERSION in
 # cooper_control_panel.html. The panel shows both and flags a mismatch,
 # so a half-deployed update is visible at a glance.
-SERVER_VERSION = "2026.09.23-10"
+SERVER_VERSION = "2026.09.23-11"
 
 # For the health report's uptime figure.
 SERVER_STARTED = time.time()
@@ -1011,7 +1011,7 @@ class EventRunner:
             return self._proc is not None and self._proc.poll() is None
 
     def start(self, opening: dict | None, message: str,
-              closing: dict | None) -> dict:
+              closing: dict | None, pause: float | None = None) -> dict:
         t0 = time.perf_counter()
         with self._lock:
             if self._proc is not None and self._proc.poll() is None:
@@ -1032,6 +1032,8 @@ class EventRunner:
                         "--opening-area", str(opening["area"])]
             if message:
                 cmd += ["--message", message]
+                if pause is not None:
+                    cmd += ["--message-pause", str(float(pause))]
             if closing:
                 cmd += ["--closing-motion", str(closing["motion"]),
                         "--closing-area", str(closing["area"])]
@@ -1149,9 +1151,22 @@ class PanelConfig:
 
     # The pre-configured special-event moment (Event card on the panel).
     MAX_EVENT_MSG = 1000
+    # Pause between the end of the message and the closing action —
+    # user-tunable per robot, with a floor so the gesture never rides
+    # straight over the last word.
+    MIN_EVENT_PAUSE = 1.0
+    MAX_EVENT_PAUSE = 30.0
+    DEFAULT_EVENT_PAUSE = 2.0
+
+    def _clean_pause(self, value) -> float:
+        try:
+            pause = float(value)
+        except (TypeError, ValueError):
+            pause = self.DEFAULT_EVENT_PAUSE
+        return min(max(pause, self.MIN_EVENT_PAUSE), self.MAX_EVENT_PAUSE)
 
     def get_event(self) -> dict:
-        """{"opening": action key, "message": text, "closing": action key}."""
+        """{"opening": key, "message": text, "closing": key, "pause": s}."""
         with self._lock:
             try:
                 data = json.loads(self._path.read_text())
@@ -1164,13 +1179,15 @@ class PanelConfig:
             "opening": str(ev.get("opening") or "")[: self.MAX_KEY_LEN],
             "message": str(ev.get("message") or "")[: self.MAX_EVENT_MSG],
             "closing": str(ev.get("closing") or "")[: self.MAX_KEY_LEN],
+            "pause": self._clean_pause(ev.get("pause")),
         }
 
-    def set_event(self, opening, message, closing) -> dict:
+    def set_event(self, opening, message, closing, pause=None) -> dict:
         cleaned = {
             "opening": str(opening or "").strip()[: self.MAX_KEY_LEN],
             "message": str(message or "").strip()[: self.MAX_EVENT_MSG],
             "closing": str(closing or "").strip()[: self.MAX_KEY_LEN],
+            "pause": self._clean_pause(pause),
         }
         with self._lock:
             try:
@@ -1754,7 +1771,8 @@ def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str,
                                  "error": f"unknown {field} action {key!r}"}, 400)
                     saved = config.set_event(body.get("opening"),
                                              body.get("message"),
-                                             body.get("closing"))
+                                             body.get("closing"),
+                                             body.get("pause"))
                     return self._send_json({"ok": True, **saved})
 
                 if self.path == "/api/event":
@@ -1781,7 +1799,8 @@ def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str,
                              "error": "the saved event uses an action this "
                                       "API no longer knows — re-save the "
                                       "Event card"}, 400)
-                    timing = events.start(opening, ev["message"], closing)
+                    timing = events.start(opening, ev["message"], closing,
+                                          pause=ev["pause"])
                     timing["server_total_ms"] = server_ms()
                     return self._send_json({"ok": True, "event_running": True,
                                             "timing": timing})

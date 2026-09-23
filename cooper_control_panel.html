@@ -404,6 +404,13 @@
       <span class="audioName">Closing</span>
       <select id="evClose"><option value="">— no closing action —</option></select>
     </div>
+    <div class="row audioRow">
+      <span class="audioName">Pause</span>
+      <input type="number" id="evPause" min="1" max="30" step="0.5" value="2"
+             style="width:92px;flex:none">
+      <span class="state">seconds between the end of the message and the
+        closing action (min 1)</span>
+    </div>
     <div class="row">
       <button class="secondary" id="evSave">💾 Save event</button>
       <button id="evPlay">▶ Play event</button>
@@ -582,9 +589,11 @@
       shares it and each robot keeps its own event), then <b>▶ Play
       event</b> runs the sequence. While the message plays the microphone
       is muted so Cooper does not answer itself, and restored afterwards.
-      The closing action starts as the message is finishing (no long pause
-      after the last words). Play is disabled while a show is running, and
-      vice versa.</p>
+      <b>Pause</b> sets how many seconds Cooper waits between the end of
+      the message and the closing action (1–30 s, saved with the event) —
+      the speech length is estimated from the text, so the pause stays the
+      same when the message changes. Play is disabled while a show is
+      running, and vice versa.</p>
 
       <h3>Performance</h3>
       <ul>
@@ -771,7 +780,7 @@
 
   // Bumped on every change, in lockstep with SERVER_VERSION in
   // cooper_panel_server.py. Shown top-right; amber = page and API differ.
-  const PANEL_VERSION = "2026.09.23-10";
+  const PANEL_VERSION = "2026.09.23-11";
   $("verChip").textContent = "v" + PANEL_VERSION;
 
   function status(msg, cls = "") {
@@ -1471,7 +1480,8 @@
     $("evPlay").disabled = off;
     $("evPlay").textContent = eventRunning ? "⏳ Event playing…" : "▶ Play event";
     $("evSave").disabled = !online;
-    $("evOpen").disabled = $("evClose").disabled = $("evMsg").disabled = !online;
+    $("evOpen").disabled = $("evClose").disabled = $("evMsg").disabled =
+      $("evPause").disabled = !online;
   }
 
   async function loadActions() {
@@ -1555,11 +1565,19 @@
   $("evOpen").addEventListener("change", evMarkDirty);
   $("evClose").addEventListener("change", evMarkDirty);
   $("evMsg").addEventListener("input", evMarkDirty);
+  $("evPause").addEventListener("input", evMarkDirty);
+
+  function evPauseValue() {
+    // Mirror the server's clamp: 1–30 s, default 2.
+    const v = parseFloat($("evPause").value);
+    return Number.isFinite(v) ? Math.min(Math.max(v, 1), 30) : 2;
+  }
 
   async function loadEventConfig() {
     try {
       const ev = await api("/api/event");
       $("evMsg").value = ev.message || "";
+      $("evPause").value = typeof ev.pause === "number" ? ev.pause : 2;
       for (const [id, key] of [["evOpen", ev.opening || ""],
                                ["evClose", ev.closing || ""]]) {
         const sel = $(id);
@@ -1589,6 +1607,7 @@
           opening: $("evOpen").value,
           message: $("evMsg").value.trim(),
           closing: $("evClose").value,
+          pause: evPauseValue(),
         }),
       });
       evDirty = false;
