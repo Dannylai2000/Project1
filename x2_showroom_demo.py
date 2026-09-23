@@ -80,8 +80,9 @@ DEFAULT_MIC_SOURCE_SVC     = "/aimdk_5Fmsgs/srv/SetMicSourceRequest"
 DEFAULT_SHOW_VOLUME = 70
 
 # Face expression played at each show phase (welcome, dance, closing).
-# Check the AimDK emoji table for the eye open/close (blink) expression id
-# and adjust with --emoji-id if it differs on your SDK build.
+# 1 = EMOTION_IDLE_BLINK in the PlayEmoji emotion enum (confirmed against
+# the show-suite SDK build, 2026-09-23); --emoji-id overrides. Other nice
+# ones: 90 happy, 100/101 very happy, 150 act cute, 220 charging.
 DEFAULT_EMOJI_ID = 1
 
 # ── Dance (step 3) ────────────────────────────────────────────────────────────
@@ -274,13 +275,18 @@ class IntroSequenceNode(Node):
         req = PlayEmoji.Request()
         with suppress(Exception):
             self._stamp(req)
-        # Field names vary between SDK builds — set whichever exists.
+        # Field names vary between SDK builds — set whichever exists. The
+        # show-suite build (dumped 2026-09-23) uses emotion_id + mode
+        # (1 = once, 2 = loop); earlier guesses never matched a field, so
+        # every request silently sent emotion 0 (UNKNOWN).
         for holder in (req, getattr(req, "emoji_req", None)):
             if holder is None:
                 continue
-            for field in ("emoji_id", "id"):
+            for field in ("emotion_id", "emoji_id", "id"):
                 if hasattr(holder, field):
                     setattr(holder, field, int(self._emoji_id))
+            if hasattr(holder, "mode"):
+                holder.mode = 2  # EMOTION_MODE_LOOP — idle blink keeps going
             if hasattr(holder, "loop"):
                 holder.loop = True
 
