@@ -86,7 +86,7 @@ or `"ok": false` with an `"error"` string.
 | `/api/shortlist` | `shortlist` (ticked keys), `times` (`{key: seconds}`, 999 = full song), `show_dance` (the configured dance key). |
 | `/api/messages` | `active` group name + `groups`: `{name: {guestName, greetAM, greetPM, introMsg, thankYouMsg, goodbyeMsg}}` — this robot's message store. |
 | `/api/actions` | `actions`: `[{key, label, emoji}]` for the gesture dropdown. |
-| `/api/event` | `opening` (action key), `message`, `closing` (action key) — this robot's pre-configured event — plus `event_running`. |
+| `/api/event` | `opening` (action key), `message`, `closing` (action key), `pause` (s between message end and closing action) — this robot's pre-configured event — plus `event_running`. |
 
 ### Control (POST, PIN required via `X-Pin`)
 
@@ -101,7 +101,7 @@ or `"ok": false` with an `"error"` string.
 | `/api/show` | `{"unmute_after": bool}` (texts optional — see below) | Launches `x2_showroom_demo.py`. Refuses (400) when no show dance is configured on this robot or the configured key is not in this robot's library. |
 | `/api/shortlist` | any of `shortlist`, `times`, `show_dance` | Save the per-robot dance settings. |
 | `/api/messages` | `{"active": name, "groups": {...}}` | Replace this robot's message store (sanitized: ≤20 groups, field whitelist, 500-char texts). |
-| `/api/event_config` | `{"opening": key, "message": text, "closing": key}` | Save this robot's event (each part optional; action keys validated, message ≤1000 chars). |
+| `/api/event_config` | `{"opening": key, "message": text, "closing": key, "pause": s}` | Save this robot's event (each part optional; action keys validated, message ≤1000 chars, pause clamped to 1–30 s, default 2). |
 | `/api/event` | `{}` | Play the pre-configured event via `x2_event.py`: opening gesture → message (TTS) → closing gesture. The mic is muted while the message plays (unless geared up) and restored after. 400 when nothing is configured; 409 while a show or another event runs. |
 | `/api/songs_seen` | `{}` | Acknowledge the ✨ new-song alert. |
 | `/api/restart` | `{}` | API exits; the robot's watchdog/socket revives it in seconds. 409 during a show. |
