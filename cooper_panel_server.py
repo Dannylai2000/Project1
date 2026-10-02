@@ -74,7 +74,7 @@ LOGGER = logging.getLogger("cooper_panel")
 # Bumped on every change, in lockstep with PANEL_VERSION in
 # cooper_control_panel.html. The panel shows both and flags a mismatch,
 # so a half-deployed update is visible at a glance.
-SERVER_VERSION = "2026.09.23-14"
+SERVER_VERSION = "2026.10.02-15"
 
 # For the health report's uptime figure.
 SERVER_STARTED = time.time()
@@ -367,6 +367,16 @@ def resource_duration_s(resource) -> float | None:
 
 class CooperPanelNode(Node):
     """ROS2 side of the panel: talks to the AimDK services."""
+
+    # Mic-source switching timing. The robot's audio router takes seconds
+    # to really apply a source change; commanding the next switch too soon
+    # leaves the SETTING on the target while the ACTUAL routing stays on
+    # the previous source (field finding 2026-10-02: panel verified
+    # in-built, native app showed external, Cooper deaf until a slow
+    # hand-done toggle). Hand taps in the native app always work, so the
+    # toggle-through mimics their pace.
+    MIC_TOGGLE_GAP_S = 4.0    # between the opposite and the target switch
+    MIC_SWITCH_APPLY_S = 2.0  # after the target switch, before unmuting
 
     def __init__(self, mute_service: str, speaker_volume: int = 70,
                  mic_source_service: str = "", mic_internal: int = 1,
@@ -755,9 +765,19 @@ class CooperPanelNode(Node):
             # external mic). Toggle through the opposite source first so
             # the final switch is always a real transition.
             self._call_mic_source(self._mic_external)
-            time.sleep(1.0)
+            # Field finding (2026-10-02): commanding the second switch too
+            # soon races the first — the router finishes applying the
+            # opposite source AFTER accepting our target, leaving the
+            # SETTING on in-built while the ACTUAL routing stays external
+            # (native app showed external, GetMicSourceRequest echoed 1,
+            # Cooper deaf). Hand-done app taps are slow and always work,
+            # so give the router the same breathing room.
+            time.sleep(self.MIC_TOGGLE_GAP_S)
             if self._call_mic_source(self._mic_internal):
                 self.mic_geared = False
+                # Let the final transition fully apply before the unmute
+                # that follows (set_listening calls us first).
+                time.sleep(self.MIC_SWITCH_APPLY_S)
         except Exception:
             LOGGER.exception("Mic normalization failed")
         finally:
@@ -786,8 +806,12 @@ class CooperPanelNode(Node):
             # Toggle through the opposite source first: the robot re-routes
             # audio only on a value change, so this guarantees the final
             # switch is a real transition (see _normalize_mic_source).
+            # The long gap matters: a target switch commanded too soon
+            # races the still-applying opposite switch and the routing
+            # ends up on the WRONG source while the setting reads right
+            # (observed in the field, 2026-10-02).
             self._call_mic_source(opposite)
-            time.sleep(1.0)
+            time.sleep(self.MIC_TOGGLE_GAP_S)
             if not self._call_mic_source(target):
                 actual = self.mic_source_state
                 detail = ""
