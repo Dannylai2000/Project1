@@ -53,6 +53,13 @@ OPENING_LEAD_S = 1.0
 AUDIO_WARMUP_TEXT = "."
 AUDIO_WARMUP_S = 2.0
 
+# Second layer of protection: even with the primer, a Bluetooth link can
+# still swallow a fraction of a second at stream start (field report:
+# "Hi" was still lost). Leading punctuation renders as ~1 s of silence
+# at the head of the message stream, so what gets swallowed is silence,
+# not the first word.
+MESSAGE_LEAD_SILENCE = ", , , "
+
 # When there is no message, or after the closing gesture, give a motion
 # this long to play out before the program (and the panel's "event
 # playing" state) ends.
@@ -141,15 +148,16 @@ def speak(node: Node, tts_client, text: str, trim_s: float = 0.0) -> bool:
     own estimated_duration is only printed for reference — it overshoots
     too much to time the sequence with.
     """
+    padded = MESSAGE_LEAD_SILENCE + text
     req = PlayTts.Request()
-    req.tts_req.text = text
+    req.tts_req.text = padded
     req.tts_req.domain = "x2-event"
     req.tts_req.trace_id = f"event-{uuid.uuid4()}"
     req.tts_req.is_interrupted = True
     req.tts_req.priority_weight = 0
     req.tts_req.priority_level.value = 6
 
-    print(f"Speaking: {text[:80]}")
+    print(f"Speaking (with silent lead-in): {text[:80]}")
     future = tts_client.call_async(req)
     done = threading.Event()
     future.add_done_callback(lambda _: done.set())
@@ -163,7 +171,7 @@ def speak(node: Node, tts_client, text: str, trim_s: float = 0.0) -> bool:
         return False
 
     engine_s = float(response.tts_resp.estimated_duration) / 1000.0
-    wait_s = max(0.0, speech_seconds(text) - max(0.0, trim_s))
+    wait_s = max(0.0, speech_seconds(padded) - max(0.0, trim_s))
     print(f"PlayTts accepted — waiting {wait_s:.1f}s from the text length "
           f"(engine claims {engine_s:.1f}s, ignored)")
     time.sleep(wait_s)
