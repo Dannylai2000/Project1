@@ -86,7 +86,7 @@ LOGGER = logging.getLogger("cooper_panel")
 # Bumped on every change, in lockstep with PANEL_VERSION in
 # cooper_control_panel.html. The panel shows both and flags a mismatch,
 # so a half-deployed update is visible at a glance.
-SERVER_VERSION = "2026.10.02-19"
+SERVER_VERSION = "2026.10.02-20"
 
 # For the health report's uptime figure.
 SERVER_STARTED = time.time()
@@ -1113,6 +1113,16 @@ class EventRunner:
                 with suppress(Exception):
                     self._node.set_listening(False)
                     was_listening = True
+                # SetMute also pulls the speaker down on these robots —
+                # the show compensates by setting its volume right after
+                # its own mute, and the event must do the same or the
+                # message plays silently (field finding 2026-10-02).
+                # Deliberately muted speaker (silent rehearsal) is kept.
+                if self._node.speaker_state is not False:
+                    with suppress(Exception):
+                        self._node._send_volume(self._node._speaker_volume)
+                        self._node.volume_state = self._node._speaker_volume
+                        self._node.speaker_state = True
 
             # -u: unbuffered, so the event's progress lines reach the
             # journal as they happen (buffered, they all appear at exit
