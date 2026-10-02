@@ -80,7 +80,7 @@ or `"ok": false` with an `"error"` string.
 | Endpoint | Returns |
 |---|---|
 | `/` | Identification blurb (the page itself lives on optimus). |
-| `/api/status` | `version`, `listening` (true/false/null = unknown), `speaker`, `volume`, `mic_geared`, `mic_source` (1 in-built / 2 external / null, last verified), `show_running`, `event_running`, `pin_required`, `library_size`, `new_songs`, `show_timing` (live show milestones). Polled every 3 s. |
+| `/api/status` | `version`, `listening` (true/false/null = unknown), `speaker`, `volume`, `mic_geared`, `mic_source` (0 in-built mic array / 1 and 2 external streams / null; field-calibrated — the native app writes 0 for Built-in), `show_running`, `event_running`, `pin_required`, `library_size`, `new_songs`, `show_timing` (live show milestones). Polled every 3 s. |
 | `/api/health` | `checks`: list of `{id, label, ok(true/false/null=warn), detail, fix}` — the 🩺 Diagnose checklist (API process, start-after-reboot, AimDK services, files, PIN, …). |
 | `/api/dances` | `dances`: `[{key, name, version, duration, is_new}]` — live LinkCraft library. `key` is the LinkCraft resource ID (per robot!), `name` the human title, `duration` the measured song length in s or null. |
 | `/api/shortlist` | `shortlist` (ticked keys), `times` (`{key: seconds}`, 999 = full song), `show_dance` (the configured dance key). |
