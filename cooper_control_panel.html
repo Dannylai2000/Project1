@@ -404,11 +404,21 @@
       <select id="evClose"><option value="">— no closing action —</option></select>
     </div>
     <div class="row audioRow">
-      <span class="audioName">Pause</span>
-      <input type="number" id="evPause" min="1" max="30" step="0.5" value="2"
-             style="width:92px;flex:none">
-      <span class="state">seconds between the end of the message and the
-        closing action (min 1)</span>
+      <span class="audioName">Closing starts</span>
+      <select id="evPause" style="flex:none">
+        <option value="-5">5 s before the message ends</option>
+        <option value="-4">4 s before the message ends</option>
+        <option value="-3" selected>3 s before the message ends</option>
+        <option value="-2">2 s before the message ends</option>
+        <option value="-1">1 s before the message ends</option>
+        <option value="0">right when the message ends</option>
+        <option value="1">1 s after the message ends</option>
+        <option value="2">2 s after the message ends</option>
+        <option value="3">3 s after the message ends</option>
+        <option value="5">5 s after the message ends</option>
+        <option value="10">10 s after the message ends</option>
+      </select>
+      <span class="state">when the closing action begins</span>
     </div>
     <div class="row">
       <button class="secondary" id="evSave">💾 Save event</button>
@@ -595,11 +605,14 @@
       shares it and each robot keeps its own event), then <b>▶ Play
       event</b> runs the sequence. While the message plays the microphone
       is muted so Cooper does not answer itself, and restored afterwards.
-      <b>Pause</b> sets how many seconds Cooper waits between the end of
-      the message and the closing action (1–30 s, saved with the event) —
-      the speech length is estimated from the text, so the pause stays the
-      same when the message changes. Play is disabled while a show is
-      running, and vice versa.</p>
+      <b>Closing starts</b> sets when the closing action begins relative
+      to the end of the message — e.g. "3 s before the message ends"
+      starts the gesture on the last words (a commanded motion takes a
+      second or two to become visible), while "after" choices leave a
+      pause. The speech length is estimated from the text, so the timing
+      stays right when the message changes. 💾 Save stores the whole
+      event on BOTH robots when both are set up. Play is disabled while
+      a show is running, and vice versa.</p>
 
       <h3>Performance</h3>
       <ul>
@@ -786,7 +799,7 @@
 
   // Bumped on every change, in lockstep with SERVER_VERSION in
   // cooper_panel_server.py. Shown top-right; amber = page and API differ.
-  const PANEL_VERSION = "2026.10.02-18";
+  const PANEL_VERSION = "2026.10.02-19";
   $("verChip").textContent = "v" + PANEL_VERSION;
 
   function status(msg, cls = "") {
@@ -872,10 +885,14 @@
     }
     clearTimeout(msgSaveTimer);   // debounced: one save per editing burst
     msgSaveTimer = setTimeout(async () => {
+      const payload = { active: activeGroup, groups: msgGroups };
       try {
         await api("/api/messages", { method: "POST",
-          body: JSON.stringify({ active: activeGroup, groups: msgGroups }) });
-        if (note) status(note, "ok");
+          body: JSON.stringify(payload) });
+        // Messages are shared content — copy them to the other robot too.
+        const warn = await mirrorToOther("/api/messages", payload);
+        if (warn) status("Messages saved on this robot only" + warn, "err");
+        else if (note) status(note, "ok");
       } catch (e) {
         status(`Saving messages on the robot failed: ${e.message}`, "err");
       }
@@ -1069,6 +1086,37 @@
     }
     if (!res.ok || data.ok === false) throw new Error(data.error || `HTTP ${res.status}`);
     return data;
+  }
+
+  // Address of the robot that is NOT active ("" when not configured) —
+  // used to mirror shared content (event, messages) to both robots so an
+  // edit made while connected to one shows up on the other too.
+  const otherAddr = () => activeRobot === "secondary"
+    ? ($("ip").value.trim()
+        ? `${$("ip").value.trim()}:${$("port").value.trim()}` : "")
+    : (secondaryConfigured()
+        ? `${$("ip2").value.trim()}:${$("port2").value.trim()}` : "");
+
+  // POST the same payload to the OTHER robot, best-effort. Returns "" on
+  // success (or when no other robot is set up), else a short warning.
+  async function mirrorToOther(path, body) {
+    const addr = otherAddr();
+    if (!addr) return "";
+    try {
+      const res = await fetch(`http://${addr}${path}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json",
+                   "X-Pin": $("pin").value },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.ok === false) {
+        throw new Error(data.error || `HTTP ${res.status}`);
+      }
+      return "";
+    } catch (e) {
+      return ` — ⚠ not copied to the other robot (${addr}): ${e.message}`;
+    }
   }
 
   // ── performance diagnostics ────────────────────────────────────────────
@@ -1580,19 +1628,34 @@
   $("evOpen").addEventListener("change", evMarkDirty);
   $("evClose").addEventListener("change", evMarkDirty);
   $("evMsg").addEventListener("input", evMarkDirty);
-  $("evPause").addEventListener("input", evMarkDirty);
+  $("evPause").addEventListener("change", evMarkDirty);
 
   function evPauseValue() {
-    // Mirror the server's clamp: 1–30 s, default 2.
+    // Mirror the server's clamp: -10 (before the end) to 30 s, default -3.
     const v = parseFloat($("evPause").value);
-    return Number.isFinite(v) ? Math.min(Math.max(v, 1), 30) : 2;
+    return Number.isFinite(v) ? Math.min(Math.max(v, -10), 30) : -3;
+  }
+
+  function evSetPauseSelect(v) {
+    const sel = $("evPause");
+    sel.value = String(v);
+    if (sel.selectedIndex < 0) {
+      // A value saved outside the preset list (e.g. 2.5 from an older
+      // page) — add it so the selection stays honest.
+      const o = document.createElement("option");
+      o.value = String(v);
+      o.textContent = v < 0 ? `${-v} s before the message ends`
+                            : `${v} s after the message ends`;
+      sel.appendChild(o);
+      sel.value = String(v);
+    }
   }
 
   async function loadEventConfig() {
     try {
       const ev = await api("/api/event");
       $("evMsg").value = ev.message || "";
-      $("evPause").value = typeof ev.pause === "number" ? ev.pause : 2;
+      evSetPauseSelect(typeof ev.pause === "number" ? ev.pause : -3);
       for (const [id, key] of [["evOpen", ev.opening || ""],
                                ["evClose", ev.closing || ""]]) {
         const sel = $(id);
@@ -1615,19 +1678,29 @@
   $("evSave").addEventListener("click", async () => {
     $("evSave").disabled = true;
     evSetState("Saving…", "");
+    const payload = {
+      opening: $("evOpen").value,
+      message: $("evMsg").value.trim(),
+      closing: $("evClose").value,
+      pause: evPauseValue(),
+    };
     try {
       await api("/api/event_config", {
-        method: "POST",
-        body: JSON.stringify({
-          opening: $("evOpen").value,
-          message: $("evMsg").value.trim(),
-          closing: $("evClose").value,
-          pause: evPauseValue(),
-        }),
+        method: "POST", body: JSON.stringify(payload),
       });
       evDirty = false;
-      evSetState(`✓ Event saved on the ${evRobotName()} (${activeAddr()}).`, "ok");
-      status("Event saved.", "ok");
+      // The event is shared content — copy it to the other robot too.
+      const warn = await mirrorToOther("/api/event_config", payload);
+      if (warn) {
+        evSetState(`✓ Saved on the ${evRobotName()} (${activeAddr()})${warn}`,
+                   "warn");
+        status("Event saved on this robot only" + warn, "err");
+      } else {
+        evSetState(otherAddr()
+          ? "✓ Event saved on BOTH robots."
+          : `✓ Event saved on the ${evRobotName()} (${activeAddr()}).`, "ok");
+        status("Event saved.", "ok");
+      }
     } catch (e) {
       evSetState(`Saving failed: ${e.message}`, "warn");
       status(`Saving the event failed: ${e.message}`, "err");
