@@ -808,7 +808,7 @@
 
   // Bumped on every change, in lockstep with SERVER_VERSION in
   // cooper_panel_server.py. Shown top-right; amber = page and API differ.
-  const PANEL_VERSION = "2026.10.02-21";
+  const PANEL_VERSION = "2026.10.02-22";
   $("verChip").textContent = "v" + PANEL_VERSION;
 
   function status(msg, cls = "") {
@@ -1106,27 +1106,70 @@
     : (secondaryConfigured()
         ? `${$("ip2").value.trim()}:${$("port2").value.trim()}` : "");
 
-  // POST the same payload to the OTHER robot, best-effort. Returns "" on
-  // success (or when no other robot is set up), else a short warning.
+  async function postTo(addr, path, body) {
+    const res = await fetch(`http://${addr}${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json",
+                 "X-Pin": $("pin").value },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.ok === false) {
+      throw new Error(data.error || `HTTP ${res.status}`);
+    }
+  }
+
+  // POST the same payload to the OTHER robot. When it is offline the
+  // copy is QUEUED in this browser and delivered automatically (every
+  // 30 s and on every connect) once that robot comes back — an edit is
+  // never silently lost just because one robot was powered down.
+  const MIRROR_QUEUE_KEY = "cooper_mirror_queue";
+  function mirrorQueue() {
+    try { return JSON.parse(localStorage.getItem(MIRROR_QUEUE_KEY)) || {}; }
+    catch { return {}; }
+  }
+  function setMirrorQueue(q) {
+    try { localStorage.setItem(MIRROR_QUEUE_KEY, JSON.stringify(q)); }
+    catch { /* storage unavailable — queueing degrades gracefully */ }
+  }
+
   async function mirrorToOther(path, body) {
     const addr = otherAddr();
     if (!addr) return "";
     try {
-      const res = await fetch(`http://${addr}${path}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json",
-                   "X-Pin": $("pin").value },
-        body: JSON.stringify(body),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || data.ok === false) {
-        throw new Error(data.error || `HTTP ${res.status}`);
-      }
+      await postTo(addr, path, body);
       return "";
     } catch (e) {
-      return ` — ⚠ not copied to the other robot (${addr}): ${e.message}`;
+      const q = mirrorQueue();
+      q[`${addr}|${path}`] = { addr, path, body, queued: Date.now() };
+      setMirrorQueue(q);
+      return ` — ⚠ the other robot (${addr}) is unreachable; the copy is ` +
+        "queued on this device and will be delivered automatically when " +
+        "it comes online (keep using this page, or press Save again later)";
     }
   }
+
+  let mirrorFlushBusy = false;
+  async function flushMirrorQueue() {
+    if (mirrorFlushBusy) return;
+    const entries = Object.entries(mirrorQueue());
+    if (!entries.length) return;
+    mirrorFlushBusy = true;
+    try {
+      for (const [key, item] of entries) {
+        try {
+          await postTo(item.addr, item.path, item.body);
+          const q = mirrorQueue();
+          delete q[key];
+          setMirrorQueue(q);
+          status(`✓ Queued copy delivered to the other robot (${item.addr}).`, "ok");
+        } catch { /* still offline — keep it queued */ }
+      }
+    } finally {
+      mirrorFlushBusy = false;
+    }
+  }
+  setInterval(flushMirrorQueue, 30000);
 
   // ── performance diagnostics ────────────────────────────────────────────
   let diagOn = localStorage.getItem("cooper_diag") === "1";
@@ -1378,6 +1421,7 @@
       startPolling();
       await Promise.all([refreshDances(), loadActions(), fetchMessages()]);
       await loadEventConfig();  // needs the action lists loaded first
+      flushMirrorQueue();       // deliver any copies queued while a robot was offline
     } catch (e) {
       $("connDot").className = "dot off";
       $("connText").textContent = "offline";
