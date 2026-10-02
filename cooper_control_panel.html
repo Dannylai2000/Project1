@@ -427,6 +427,11 @@
       <span class="state">when the first action after the message begins</span>
     </div>
     <div class="row">
+      <label class="chk"><input type="checkbox" id="evBt"> external
+        Bluetooth speaker — wake it up before the message (prevents the
+        first words being cut off; leave off for Cooper's own speaker)</label>
+    </div>
+    <div class="row">
       <button class="secondary" id="evSave">💾 Save event</button>
       <button id="evPlay">▶ Play event</button>
     </div>
@@ -808,7 +813,7 @@
 
   // Bumped on every change, in lockstep with SERVER_VERSION in
   // cooper_panel_server.py. Shown top-right; amber = page and API differ.
-  const PANEL_VERSION = "2026.10.02-24";
+  const PANEL_VERSION = "2026.10.02-25";
   $("verChip").textContent = "v" + PANEL_VERSION;
 
   function status(msg, cls = "") {
@@ -1597,7 +1602,8 @@
     $("evPlay").textContent = eventRunning ? "⏳ Event playing…" : "▶ Play event";
     $("evSave").disabled = !online;
     $("evOpen").disabled = $("evMid").disabled = $("evClose").disabled =
-      $("evMsg").disabled = $("evPause").disabled = !online;
+      $("evMsg").disabled = $("evPause").disabled =
+      $("evBt").disabled = !online;
   }
 
   async function loadActions() {
@@ -1684,6 +1690,7 @@
   $("evClose").addEventListener("change", evMarkDirty);
   $("evMsg").addEventListener("input", evMarkDirty);
   $("evPause").addEventListener("change", evMarkDirty);
+  $("evBt").addEventListener("change", evMarkDirty);
 
   function evPauseValue() {
     // Mirror the server's clamp: -10 (before the end) to 30 s, default -3.
@@ -1711,6 +1718,7 @@
       const ev = await api("/api/event");
       $("evMsg").value = ev.message || "";
       evSetPauseSelect(typeof ev.pause === "number" ? ev.pause : -3);
+      $("evBt").checked = ev.bt_speaker === true;
       for (const [id, key] of [["evOpen", ev.opening || ""],
                                ["evMid", ev.middle || ""],
                                ["evClose", ev.closing || ""]]) {
@@ -1740,6 +1748,7 @@
       middle: $("evMid").value,
       closing: $("evClose").value,
       pause: evPauseValue(),
+      bt_speaker: $("evBt").checked,
     };
     try {
       await api("/api/event_config", {

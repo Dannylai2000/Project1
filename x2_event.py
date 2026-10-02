@@ -140,15 +140,17 @@ def warm_up_audio(node: Node, tts_client, text: str) -> None:
         print("audio warm-up primer sent")
 
 
-def speak(node: Node, tts_client, text: str, trim_s: float = 0.0) -> bool:
+def speak(node: Node, tts_client, text: str, trim_s: float = 0.0,
+          lead_silence: bool = False) -> bool:
     """Speak `text` and wait out its TEXT-BASED duration estimate.
 
     `trim_s` returns that many seconds early, so the caller can start
-    the closing gesture while the last words still play. The engine's
-    own estimated_duration is only printed for reference — it overshoots
-    too much to time the sequence with.
+    the closing gesture while the last words still play. `lead_silence`
+    prepends ~1 s of silence for Bluetooth speakers (see
+    MESSAGE_LEAD_SILENCE). The engine's own estimated_duration is only
+    printed for reference — it overshoots too much to time with.
     """
-    padded = MESSAGE_LEAD_SILENCE + text
+    padded = (MESSAGE_LEAD_SILENCE if lead_silence else "") + text
     req = PlayTts.Request()
     req.tts_req.text = padded
     req.tts_req.domain = "x2-event"
@@ -157,7 +159,8 @@ def speak(node: Node, tts_client, text: str, trim_s: float = 0.0) -> bool:
     req.tts_req.priority_weight = 0
     req.tts_req.priority_level.value = 6
 
-    print(f"Speaking (with silent lead-in): {text[:80]}")
+    print(("Speaking (with silent lead-in): " if lead_silence
+           else "Speaking: ") + text[:80])
     future = tts_client.call_async(req)
     done = threading.Event()
     future.add_done_callback(lambda _: done.set())
@@ -202,10 +205,14 @@ def main() -> int:
                              "= that many seconds BEFORE the end (overlap, "
                              f"default {DEFAULT_MESSAGE_PAUSE_S}), positive "
                              "= pause after it")
+    parser.add_argument("--bt-speaker", action="store_true",
+                        help="the audio goes to an external Bluetooth "
+                             "speaker: wake its link with a TTS primer "
+                             "and prepend a silent lead-in to the "
+                             "message (BT links swallow stream starts)")
     parser.add_argument("--warmup-text", default=AUDIO_WARMUP_TEXT,
-                        help="primer utterance that wakes a sleeping "
-                             "Bluetooth speaker before the message "
-                             "('' disables the warm-up)")
+                        help="primer utterance for --bt-speaker "
+                             "('' disables the primer only)")
     parser.add_argument("--wait", type=float, default=5.0,
                         help="seconds to wait for each service")
     args = parser.parse_args()
@@ -247,8 +254,9 @@ def main() -> int:
         ok = True
         # Wake the audio path first (Bluetooth speakers swallow the first
         # words otherwise); the wait overlaps the opening gesture below.
+        # Skipped entirely on the in-built speaker (--bt-speaker not set).
         warmup_until = 0.0
-        if message and args.warmup_text:
+        if message and args.bt_speaker and args.warmup_text:
             warm_up_audio(node, tts_client, args.warmup_text)
             warmup_until = time.monotonic() + AUDIO_WARMUP_S
         if opening:
@@ -268,7 +276,8 @@ def main() -> int:
             remaining = warmup_until - time.monotonic()
             if remaining > 0:
                 time.sleep(remaining)  # give the primer time to open the link
-            ok &= speak(node, tts_client, message, trim_s=trim)
+            ok &= speak(node, tts_client, message, trim_s=trim,
+                        lead_silence=args.bt_speaker)
             if after_msg and pause > 0:
                 time.sleep(pause)
             elif not after_msg:
