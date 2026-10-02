@@ -86,7 +86,7 @@ LOGGER = logging.getLogger("cooper_panel")
 # Bumped on every change, in lockstep with PANEL_VERSION in
 # cooper_control_panel.html. The panel shows both and flags a mismatch,
 # so a half-deployed update is visible at a glance.
-SERVER_VERSION = "2026.10.02-17"
+SERVER_VERSION = "2026.10.02-18"
 
 # For the health report's uptime figure.
 SERVER_STARTED = time.time()
@@ -884,12 +884,14 @@ class CooperPanelNode(Node):
         timing["gear_ms"] = round((time.perf_counter() - t0) * 1000, 1)
         return timing
 
-    def set_listening(self, listen: bool) -> dict:
+    def set_listening(self, listen: bool, normalize: bool = True) -> dict:
         """Unmute (listen=True) or mute (listen=False) Cooper's microphones.
 
         Returns a timing breakdown for the performance diagnostics.
+        `normalize=False` skips the mic-source normalization — used when
+        the caller has just switched the source itself (gear Normal).
         """
-        if listen:
+        if listen and normalize:
             # Make sure the built-in mic is active before listening resumes.
             self._normalize_mic_source()
         timing: dict = {}
@@ -1776,6 +1778,12 @@ def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str,
                              "error": "a show is running — wait for it to finish"}, 409)
                     external = bool(body.get("external", True))
                     timing = node.gear_up(external)
+                    if not external:
+                        # Normal must leave Cooper conversing: the source
+                        # is already on the built-in mic, so just clear
+                        # any leftover mute (e.g. from a non-geared show).
+                        with suppress(Exception):
+                            node.set_listening(True, normalize=False)
                     timing["server_total_ms"] = server_ms()
                     return self._send_json({"ok": True, "mic_geared": node.mic_geared,
                                             "volume": node.volume_state,

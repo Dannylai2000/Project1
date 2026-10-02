@@ -359,10 +359,8 @@
   <section>
     <h2>Audio</h2>
     <div class="row audioRow">
-      <span class="audioName">🎙 Microphone</span>
-      <label class="rad"><input type="radio" name="micRad" id="micOn"> On</label>
-      <label class="rad"><input type="radio" name="micRad" id="micOff"> Off</label>
-      <span class="state" id="micState">unknown</span>
+      <span class="audioName">👂 Hearing</span>
+      <span class="state" id="hearState">syncing…</span>
     </div>
     <div class="row audioRow">
       <span class="audioName">🔊 Speaker</span>
@@ -375,8 +373,9 @@
       <input type="range" id="volSlider" min="0" max="100" step="5" value="70">
       <span class="state" id="volState">—</span>
     </div>
-    <div id="listenHint" class="hint">Microphone Off = Cooper ignores
-      surrounding conversation. Speaker Muted = no sound from Cooper.</div>
+    <div id="listenHint" class="hint">Who Cooper listens to is set by MIC
+      mode below: Normal = converses with everyone, Gear up = ignores the
+      audience for a performance. Speaker Muted = no sound from Cooper.</div>
   </section>
 
   <section>
@@ -513,7 +512,7 @@
       <p>Shows whether the <b>control API</b> (the small program that relays
       panel commands to the robot) is reachable at the address in Settings.
       Green = online and ready; red = unreachable — all controls, including
-      the Microphone/Speaker radios, are disabled and show "unknown" until
+      the Speaker radios, are disabled and show "unknown" until
       the connection comes back. When red: press <b>🔄 Restart server</b>
       (an on-demand install starts within a couple of seconds; the panel
       also retries every 3 seconds by itself), and double-check the address
@@ -556,14 +555,16 @@
           times, and song alerts (they live on the robot itself).</li>
       </ul>
 
-      <h3>Audio — microphone and speaker</h3>
-      <p><b>🎙 Microphone On / Off</b> — Off means Cooper ignores surrounding
-      conversation and will not answer the audience. Turning it On first
-      switches Cooper back to the built-in microphone automatically (done
-      silently), in case a show left the external mic selected. During a
-      show the script controls the microphone itself: muted at the start,
-      and it stays muted afterwards unless "listen again after show" is
-      ticked.
+      <h3>Audio — hearing and speaker</h3>
+      <p><b>👂 Hearing</b> — one status line that says who Cooper listens
+      to right now: <i>listening</i> (Normal mode — talk to Cooper),
+      <i>ignoring the audience</i> (geared up for a performance), or
+      <i>muted</i> (a non-geared show muted the mic — selecting Normal in
+      MIC mode restores conversation, which also re-selects the built-in
+      microphone automatically). There is no separate Microphone On/Off
+      switch anymore: MIC mode is the single control, which removes a
+      confusing combination (geared-up kept the mic "On" by design while
+      Cooper deliberately ignored the room).
       <br><b>🔊 Speaker On / Muted</b> — Muted sets Cooper's volume to zero,
       so no speech or sound comes out (useful for a silent rehearsal); On
       restores the normal volume.
@@ -785,7 +786,7 @@
 
   // Bumped on every change, in lockstep with SERVER_VERSION in
   // cooper_panel_server.py. Shown top-right; amber = page and API differ.
-  const PANEL_VERSION = "2026.10.02-17";
+  const PANEL_VERSION = "2026.10.02-18";
   $("verChip").textContent = "v" + PANEL_VERSION;
 
   function status(msg, cls = "") {
@@ -1169,7 +1170,7 @@
   // ── web server availability bar ────────────────────────────────────────
   let online = false;
 
-  const AUDIO_RADIOS = ["micOn", "micOff", "spkOn", "spkOff", "volSlider",
+  const AUDIO_RADIOS = ["spkOn", "spkOff", "volSlider",
                         "gearUp", "gearDown"];
 
   function updateServerBar(up) {
@@ -1213,12 +1214,19 @@
     setActionButtonsEnabled();
     $("runShow").textContent = showRunning ? "⏳ Show running…" : "▶ Run full show";
 
-    // Microphone radios (the show / event controls the mic while it runs).
-    $("micOn").disabled = $("micOff").disabled = showRunning || eventRunning;
-    $("micOn").checked = s.listening === true;
-    $("micOff").checked = s.listening === false;
-    $("micState").textContent =
-      s.listening === true ? "listening" : s.listening === false ? "off" : "unknown";
+    // One honest line: who Cooper hears right now (gear + mute combined).
+    // The old Microphone On/Off radios confused operators — geared-up
+    // keeps the mic unmuted by design (muting kills the show audio), so
+    // "On" while Cooper ignored the audience looked like a bug.
+    $("hearState").textContent =
+      showRunning || eventRunning
+        ? "🎤 performing — the show controls the microphone"
+      : s.mic_geared === true
+        ? "🎭 ignoring the audience (geared up for the show)"
+      : s.listening === true ? "👂 listening — talk to Cooper"
+      : s.listening === false
+        ? "🔇 muted — select Normal in MIC mode to restore conversation"
+      : "syncing…";
     // Speaker radios + volume (usable even during a show, e.g. silent rehearsal).
     $("spkOn").disabled = $("spkOff").disabled = $("volSlider").disabled = false;
     $("spkOn").checked = s.speaker === true;
@@ -1255,8 +1263,9 @@
     }
     $("listenHint").textContent = showRunning
       ? "The show controls the microphone while it is running."
-      : "Microphone Off = Cooper ignores surrounding conversation. " +
-        "Speaker Muted = no sound from Cooper.";
+      : "Who Cooper listens to is set by MIC mode below: Normal = " +
+        "converses with everyone, Gear up = ignores the audience for a " +
+        "performance. Speaker Muted = no sound from Cooper.";
 
     // Version cross-check: amber chip = page and API not on the same build.
     if (s.version && s.version !== PANEL_VERSION) {
@@ -1709,10 +1718,6 @@
       poll();  // re-renders the radios from Cooper's actual state
     }
   }
-  $("micOn").addEventListener("change", () =>
-    setAudio("/api/listening", { listen: true }, "Microphone ON", "Microphone is on — Cooper is listening."));
-  $("micOff").addEventListener("change", () =>
-    setAudio("/api/listening", { listen: false }, "Microphone OFF", "Microphone is off."));
   $("spkOn").addEventListener("change", () =>
     setAudio("/api/speaker", { on: true }, "Speaker ON", "Speaker is on."));
   $("spkOff").addEventListener("change", () =>
