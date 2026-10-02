@@ -62,6 +62,18 @@ try:
 except ImportError:  # pragma: no cover
     SetVolume = None
 
+# Read-backs (present on the show-suite SDK build; probed 2026-10-02).
+# They let the panel RECOVER mute/volume state after an API restart
+# instead of showing "unknown" until the next command.
+try:
+    from aimdk_msgs.srv import GetMute
+except ImportError:  # pragma: no cover
+    GetMute = None
+try:
+    from aimdk_msgs.srv import GetVolume
+except ImportError:  # pragma: no cover
+    GetVolume = None
+
 # Dynamic service loading (types vary by SDK build).
 try:
     from rosidl_runtime_py.utilities import get_service
@@ -74,7 +86,7 @@ LOGGER = logging.getLogger("cooper_panel")
 # Bumped on every change, in lockstep with PANEL_VERSION in
 # cooper_control_panel.html. The panel shows both and flags a mismatch,
 # so a half-deployed update is visible at a glance.
-SERVER_VERSION = "2026.10.02-16"
+SERVER_VERSION = "2026.10.02-17"
 
 # For the health report's uptime figure.
 SERVER_STARTED = time.time()
@@ -83,6 +95,8 @@ DEFAULT_GET_RESOURCES_SVC  = "/aimdk_5Fmsgs/srv/GetRobotResources"
 DEFAULT_EXECUTE_ACTION_SVC = "/aimdk_5Fmsgs/srv/ExecuteActionResource"
 DEFAULT_SET_MUTE_SVC       = "/aimdk_5Fmsgs/srv/SetMute"
 DEFAULT_SET_VOLUME_SVC     = "/aimdk_5Fmsgs/srv/SetVolume"
+DEFAULT_GET_MUTE_SVC       = "/aimdk_5Fmsgs/srv/GetMute"
+DEFAULT_GET_VOLUME_SVC     = "/aimdk_5Fmsgs/srv/GetVolume"
 
 # One-tap gestures for the panel's Actions card and the Event selectors.
 # Motion IDs from the robot's McPresetMotion enum; areas are a bitmask
@@ -415,6 +429,16 @@ class CooperPanelNode(Node):
             self._set_volume = self.create_client(
                 SetVolume, DEFAULT_SET_VOLUME_SVC, callback_group=self._cbg
             )
+        self._get_mute = None
+        if GetMute is not None:
+            self._get_mute = self.create_client(
+                GetMute, DEFAULT_GET_MUTE_SVC, callback_group=self._cbg
+            )
+        self._get_volume = None
+        if GetVolume is not None:
+            self._get_volume = self.create_client(
+                GetVolume, DEFAULT_GET_VOLUME_SVC, callback_group=self._cbg
+            )
 
         # Last listening/speaker/volume states we set (None until first change).
         self.listening_state: bool | None = None
@@ -635,12 +659,12 @@ class CooperPanelNode(Node):
         return None
 
     def _mic_state_watch(self) -> None:
-        """Keep mic_source_state / mic_geared synced to the ROBOT's truth.
+        """Keep the panel's audio state synced to the ROBOT's truth.
 
         Covers two realities: an API restart wipes the in-memory state
-        (the radio then lied "normal" while the robot was external), and
-        the native AgiBot app can switch the mic outside the panel. Read
-        the actual source at startup and every 30 s thereafter.
+        (radios then show "unknown" or lie), and the native AgiBot app
+        can change mic/mute/volume outside the panel. Read the actual
+        source, mute and volume at startup and every 30 s thereafter.
         """
         time.sleep(3.0)  # let DDS discovery populate the service graph
         while True:
@@ -655,6 +679,33 @@ class CooperPanelNode(Node):
                                     "source=%d (%s)", source,
                                     "external" if geared else "in-built")
                     self.mic_geared = geared
+            with suppress(Exception):
+                if self._get_mute is not None and \
+                        self._get_mute.wait_for_service(timeout_sec=1.0):
+                    req = GetMute.Request()
+                    with suppress(Exception):
+                        req.request.header.stamp = \
+                            self.get_clock().now().to_msg()
+                    resp = self._call_service(self._get_mute, req)
+                    if resp is not None:
+                        listening = not bool(resp.is_mute)
+                        if listening != self.listening_state:
+                            LOGGER.info(
+                                "Listening state synced from the robot: %s",
+                                "listening" if listening else "muted")
+                        self.listening_state = listening
+            with suppress(Exception):
+                if self._get_volume is not None and \
+                        self._get_volume.wait_for_service(timeout_sec=1.0):
+                    req = GetVolume.Request()
+                    with suppress(Exception):
+                        req.request.header.stamp = \
+                            self.get_clock().now().to_msg()
+                    resp = self._call_service(self._get_volume, req)
+                    if resp is not None:
+                        vol = int(resp.audio_volume)
+                        self.volume_state = vol
+                        self.speaker_state = vol > 0
             time.sleep(30.0)
 
     def _get_mic_source(self) -> int | None:
@@ -677,8 +728,8 @@ class CooperPanelNode(Node):
         return source
 
     def _call_mic_source(self, target: int) -> bool:
-        """Switch Cooper's mic stream to `target` (1 = built-in, 2 = external)
-        and VERIFY the robot really changed.
+        """Switch Cooper's mic stream to `target` (0 = built-in; 1 and 2
+        are external streams) and VERIFY the robot really changed.
 
         The native app showed the switch not applying even though the service
         answered, so success now means: response received, no error flagged in
