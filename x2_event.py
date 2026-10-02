@@ -43,6 +43,16 @@ DEFAULT_TTS_SERVICE = "/aimdk_5Fmsgs/srv/PlayTts"
 # the message starts (the same feel as the show's wave-during-greeting).
 OPENING_LEAD_S = 1.0
 
+# Bluetooth speakers sleep their audio link and swallow the first words
+# of a message (field report 2026-10-02: the first three words were cut
+# off on the external BT speaker). A tiny primer utterance is sent this
+# long before the real message to wake the link; it overlaps the opening
+# gesture so the event barely slows down. "." renders as (near) silence
+# on most TTS engines — if the cutoff persists, the primer never made a
+# sound: set an audible --warmup-text instead.
+AUDIO_WARMUP_TEXT = "."
+AUDIO_WARMUP_S = 2.0
+
 # When there is no message, or after the closing gesture, give a motion
 # this long to play out before the program (and the panel's "event
 # playing" state) ends.
@@ -101,6 +111,26 @@ def run_gesture(node: Node, client, mc_action_service: str,
     print(f"gesture {motion}/{area} rejected (code={code} state={state}) "
           "even after Stable Stand", file=sys.stderr)
     return False
+
+
+def warm_up_audio(node: Node, tts_client, text: str) -> None:
+    """Fire a tiny TTS primer to wake a sleeping (Bluetooth) audio link.
+
+    Best-effort and fast: failures never block the event.
+    """
+    with suppress(Exception):
+        req = PlayTts.Request()
+        req.tts_req.text = text
+        req.tts_req.domain = "x2-event"
+        req.tts_req.trace_id = f"event-warmup-{uuid.uuid4()}"
+        req.tts_req.is_interrupted = True
+        req.tts_req.priority_weight = 0
+        req.tts_req.priority_level.value = 6
+        future = tts_client.call_async(req)
+        done = threading.Event()
+        future.add_done_callback(lambda _: done.set())
+        done.wait(3.0)
+        print("audio warm-up primer sent")
 
 
 def speak(node: Node, tts_client, text: str, trim_s: float = 0.0) -> bool:
@@ -164,6 +194,10 @@ def main() -> int:
                              "= that many seconds BEFORE the end (overlap, "
                              f"default {DEFAULT_MESSAGE_PAUSE_S}), positive "
                              "= pause after it")
+    parser.add_argument("--warmup-text", default=AUDIO_WARMUP_TEXT,
+                        help="primer utterance that wakes a sleeping "
+                             "Bluetooth speaker before the message "
+                             "('' disables the warm-up)")
     parser.add_argument("--wait", type=float, default=5.0,
                         help="seconds to wait for each service")
     args = parser.parse_args()
@@ -203,6 +237,12 @@ def main() -> int:
                 return 1
 
         ok = True
+        # Wake the audio path first (Bluetooth speakers swallow the first
+        # words otherwise); the wait overlaps the opening gesture below.
+        warmup_until = 0.0
+        if message and args.warmup_text:
+            warm_up_audio(node, tts_client, args.warmup_text)
+            warmup_until = time.monotonic() + AUDIO_WARMUP_S
         if opening:
             ok &= run_gesture(node, motion_client, args.mc_action_service,
                               opening[0], opening[1], args.stand_settle)
@@ -217,6 +257,9 @@ def main() -> int:
             # before the estimated end of the message (the gesture's own
             # ~1-2 s command latency eats part of the overlap).
             trim = -pause if (after_msg and pause < 0) else 0.0
+            remaining = warmup_until - time.monotonic()
+            if remaining > 0:
+                time.sleep(remaining)  # give the primer time to open the link
             ok &= speak(node, tts_client, message, trim_s=trim)
             if after_msg and pause > 0:
                 time.sleep(pause)
