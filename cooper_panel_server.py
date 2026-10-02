@@ -86,7 +86,7 @@ LOGGER = logging.getLogger("cooper_panel")
 # Bumped on every change, in lockstep with PANEL_VERSION in
 # cooper_control_panel.html. The panel shows both and flags a mismatch,
 # so a half-deployed update is visible at a glance.
-SERVER_VERSION = "2026.10.02-24"
+SERVER_VERSION = "2026.10.02-25"
 
 # For the health report's uptime figure.
 SERVER_STARTED = time.time()
@@ -1100,7 +1100,8 @@ class EventRunner:
 
     def start(self, opening: dict | None, message: str,
               middle: dict | None, closing: dict | None,
-              pause: float | None = None) -> dict:
+              pause: float | None = None,
+              bt_speaker: bool = False) -> dict:
         t0 = time.perf_counter()
         with self._lock:
             if self._proc is not None and self._proc.poll() is None:
@@ -1136,6 +1137,10 @@ class EventRunner:
                 cmd += ["--message", message]
                 if pause is not None:
                     cmd += ["--message-pause", str(float(pause))]
+                if bt_speaker:
+                    # External BT speaker: wake its link (primer) and
+                    # pad the message start (BT swallows stream starts).
+                    cmd += ["--bt-speaker"]
             if middle:
                 cmd += ["--middle-motion", str(middle["motion"]),
                         "--middle-area", str(middle["area"])]
@@ -1287,16 +1292,18 @@ class PanelConfig:
             "middle": str(ev.get("middle") or "")[: self.MAX_KEY_LEN],
             "closing": str(ev.get("closing") or "")[: self.MAX_KEY_LEN],
             "pause": self._clean_pause(ev.get("pause")),
+            "bt_speaker": bool(ev.get("bt_speaker", False)),
         }
 
     def set_event(self, opening, message, middle, closing,
-                  pause=None) -> dict:
+                  pause=None, bt_speaker=False) -> dict:
         cleaned = {
             "opening": str(opening or "").strip()[: self.MAX_KEY_LEN],
             "message": str(message or "").strip()[: self.MAX_EVENT_MSG],
             "middle": str(middle or "").strip()[: self.MAX_KEY_LEN],
             "closing": str(closing or "").strip()[: self.MAX_KEY_LEN],
             "pause": self._clean_pause(pause),
+            "bt_speaker": bool(bt_speaker),
         }
         with self._lock:
             try:
@@ -1889,7 +1896,8 @@ def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str,
                                              body.get("message"),
                                              body.get("middle"),
                                              body.get("closing"),
-                                             body.get("pause"))
+                                             body.get("pause"),
+                                             body.get("bt_speaker", False))
                     return self._send_json({"ok": True, **saved})
 
                 if self.path == "/api/event":
@@ -1939,7 +1947,8 @@ def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str,
                                      "error": "auto gear-up before the "
                                               f"event failed: {exc}"}, 502)
                     timing = events.start(opening, ev["message"], middle,
-                                          closing, pause=ev["pause"])
+                                          closing, pause=ev["pause"],
+                                          bt_speaker=ev["bt_speaker"])
                     timing["server_total_ms"] = server_ms()
                     return self._send_json({"ok": True, "event_running": True,
                                             "auto_geared": auto_geared,
