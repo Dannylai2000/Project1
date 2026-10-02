@@ -74,7 +74,7 @@ LOGGER = logging.getLogger("cooper_panel")
 # Bumped on every change, in lockstep with PANEL_VERSION in
 # cooper_control_panel.html. The panel shows both and flags a mismatch,
 # so a half-deployed update is visible at a glance.
-SERVER_VERSION = "2026.10.02-15"
+SERVER_VERSION = "2026.10.02-16"
 
 # For the health report's uptime figure.
 SERVER_STARTED = time.time()
@@ -379,7 +379,7 @@ class CooperPanelNode(Node):
     MIC_SWITCH_APPLY_S = 2.0  # after the target switch, before unmuting
 
     def __init__(self, mute_service: str, speaker_volume: int = 70,
-                 mic_source_service: str = "", mic_internal: int = 1,
+                 mic_source_service: str = "", mic_internal: int = 0,
                  mic_external: int = 2) -> None:
         super().__init__("cooper_panel")
         self._speaker_volume = max(1, min(100, int(speaker_volume)))
@@ -647,7 +647,9 @@ class CooperPanelNode(Node):
             with suppress(Exception):
                 source = self._get_mic_source()
                 if source is not None:
-                    geared = (source == self._mic_external)
+                    # Any non-built-in stream counts as geared: 1 and 2
+                    # are both external on these robots (built-in = 0).
+                    geared = (source != self._mic_internal)
                     if geared != self.mic_geared:
                         LOGGER.info("Mic state synced from the robot: "
                                     "source=%d (%s)", source,
@@ -817,8 +819,8 @@ class CooperPanelNode(Node):
                 detail = ""
                 if actual is not None and actual != target:
                     detail = (" — the robot still reports the "
-                              + ("external" if actual == self._mic_external
-                                 else "in-built") + " mic")
+                              + ("in-built" if actual == self._mic_internal
+                                 else "external") + " mic")
                 raise RuntimeError("mic-source switch did not apply"
                                    + detail + " (details in Cooper's journal)")
             time.sleep(max(0.0, settle_s))
@@ -1933,7 +1935,12 @@ def main() -> None:
                              "built-in mic → mute ('' disables)")
     parser.add_argument("--mic-source-field", default="audio_stream_id")
     parser.add_argument("--mic-external", type=int, default=2)
-    parser.add_argument("--mic-internal", type=int, default=1)
+    # Field-calibrated 2026-10-02: the BUILT-IN mic array is stream 0 on
+    # these robots (the native app writes 0 and conversation works);
+    # streams 1 and 2 are both external. Setting 1 as "internal" left
+    # Cooper deaf with a readback that agreed — the long-standing
+    # deaf-after-performance mystery.
+    parser.add_argument("--mic-internal", type=int, default=0)
     parser.add_argument("--pin", default=os.getenv("COOPER_PANEL_PIN", ""),
                         help="PIN required for all control actions "
                              "(env COOPER_PANEL_PIN; empty = no PIN)")

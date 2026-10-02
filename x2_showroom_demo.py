@@ -133,7 +133,7 @@ class IntroSequenceNode(Node):
         mic_source_service: str = DEFAULT_MIC_SOURCE_SVC,
         mic_source_field: str = "audio_stream_id",
         mic_external: int = 2,
-        mic_internal: int = 1,
+        mic_internal: int = 0,
         no_dance: bool = False,
         stand_settle_s: float = STAND_SETTLE_S,
     ) -> None:
@@ -877,8 +877,9 @@ def main() -> None:
                         help="request field holding the source id")
     parser.add_argument("--mic-external", type=int, default=2,
                         help="source id of the external mic (AimDK: 2)")
-    parser.add_argument("--mic-internal", type=int, default=1,
-                        help="source id of the built-in mic (AimDK: 1)")
+    parser.add_argument("--mic-internal", type=int, default=0,
+                        help="source id of the built-in mic (0 on the "
+                             "show-suite robots — 1 and 2 are external)")
     parser.add_argument("--log-level", default=os.getenv("LOG_LEVEL", "INFO"))
     args = parser.parse_args()
 
