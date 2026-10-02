@@ -3,7 +3,7 @@
 Standalone companion to the Cooper Control Panel: the panel server invokes
 this script when ▶ Play event is pressed. The sequence is
 
-    opening gesture  →  event message (TTS)  →  closing gesture
+    opening gesture → event message (TTS) → middle gesture → closing gesture
 
 and every part is optional — the panel stores which gestures and text to
 use in cooper_panel_config.json. It can also be tested by hand:
@@ -47,6 +47,10 @@ OPENING_LEAD_S = 1.0
 # this long to play out before the program (and the panel's "event
 # playing" state) ends.
 GESTURE_PLAY_S = 4.0
+
+# Gap between the middle gesture and the closing one — long enough for
+# the middle motion to play out, short enough to keep the finale tight.
+MIDDLE_PLAY_S = 6.0
 
 # The TTS engine's estimated_duration overshoots badly (measured ~9 s too
 # long on the show-suite message), and the overshoot scales with the text —
@@ -139,11 +143,13 @@ def speak(node: Node, tts_client, text: str, trim_s: float = 0.0) -> bool:
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Play the pre-configured event: opening gesture → "
-                    "message → closing gesture"
+                    "message → middle gesture → closing gesture"
     )
     parser.add_argument("--opening-motion", type=int, default=None)
     parser.add_argument("--opening-area", type=int, default=None)
     parser.add_argument("--message", default="")
+    parser.add_argument("--middle-motion", type=int, default=None)
+    parser.add_argument("--middle-area", type=int, default=None)
     parser.add_argument("--closing-motion", type=int, default=None)
     parser.add_argument("--closing-area", type=int, default=None)
     parser.add_argument("--service", default=DEFAULT_PRESET_MOTION_SVC)
@@ -164,13 +170,15 @@ def main() -> int:
 
     opening = (args.opening_motion, args.opening_area) \
         if args.opening_motion is not None and args.opening_area is not None else None
+    middle = (args.middle_motion, args.middle_area) \
+        if args.middle_motion is not None and args.middle_area is not None else None
     closing = (args.closing_motion, args.closing_area) \
         if args.closing_motion is not None and args.closing_area is not None else None
     message = args.message.strip()
-    if not opening and not message and not closing:
+    if not opening and not message and not middle and not closing:
         print("nothing to play: give --opening-motion/--opening-area, "
-              "--message and/or --closing-motion/--closing-area",
-              file=sys.stderr)
+              "--message, --middle-motion/--middle-area and/or "
+              "--closing-motion/--closing-area", file=sys.stderr)
         return 1
 
     rclpy.init()
@@ -180,7 +188,7 @@ def main() -> int:
     threading.Thread(target=executor.spin, daemon=True).start()
     try:
         motion_client = None
-        if opening or closing:
+        if opening or middle or closing:
             motion_client = node.create_client(SetMcPresetMotion, args.service)
             if not motion_client.wait_for_service(timeout_sec=args.wait):
                 print(f"SetMcPresetMotion service not available at "
@@ -201,18 +209,26 @@ def main() -> int:
             time.sleep(OPENING_LEAD_S if message else GESTURE_PLAY_S)
         pause = min(max(args.message_pause, MIN_MESSAGE_PAUSE_S),
                     MAX_MESSAGE_PAUSE_S)
+        # The pause offset times the FIRST gesture after the message
+        # (the middle one when set, else the closing one).
+        after_msg = middle or closing
         if message:
-            # Negative pause = start the closing gesture that many seconds
+            # Negative pause = start that gesture this many seconds
             # before the estimated end of the message (the gesture's own
             # ~1-2 s command latency eats part of the overlap).
-            trim = -pause if (closing and pause < 0) else 0.0
+            trim = -pause if (after_msg and pause < 0) else 0.0
             ok &= speak(node, tts_client, message, trim_s=trim)
-            if closing and pause > 0:
+            if after_msg and pause > 0:
                 time.sleep(pause)
-            elif not closing:
-                # No closing gesture: linger briefly so the mic stays
+            elif not after_msg:
+                # No gesture follows: linger briefly so the mic stays
                 # muted through any speech tail the estimate missed.
                 time.sleep(2.0)
+        if middle:
+            ok &= run_gesture(node, motion_client, args.mc_action_service,
+                              middle[0], middle[1], args.stand_settle)
+            # Let the middle gesture play out before the closing one.
+            time.sleep(MIDDLE_PLAY_S if closing else GESTURE_PLAY_S)
         if closing:
             ok &= run_gesture(node, motion_client, args.mc_action_service,
                               closing[0], closing[1], args.stand_settle)
