@@ -92,10 +92,10 @@ or `"ok": false` with an `"error"` string.
 
 | Endpoint | Body | Effect |
 |---|---|---|
-| `/api/listening` | `{"listen": bool}` | Mic on/off via `SetMute`. Turning ON first silently normalizes the mic source back to in-built (volume-0-wrapped) and clears the geared flag. |
+| `/api/listening` | `{"listen": bool}` | Mic on/off via `SetMute`. Turning ON first silently normalizes the mic source back to in-built (volume-0-wrapped) and clears the geared flag. No panel UI since v18 (MIC mode is the single control); kept for older pages and scripting. |
 | `/api/speaker` | `{"on": bool}` | Speaker on/muted via `SetVolume` (muted = 0, on = last level). |
 | `/api/volume` | `{"level": 0-100}` | Speaker volume. |
-| `/api/gear_up` | `{"external": bool}` | Performance prep: volume 0 → switch mic source → 5 s settle → volume 70. The switch is **verified** via `GetMicSourceRequest` (retry once, honest failure). 409 while a show runs. |
+| `/api/gear_up` | `{"external": bool}` | Performance prep: volume 0 → switch mic source → 5 s settle → volume 70. The switch is **verified** via `GetMicSourceRequest` (retry once, honest failure). `external: false` (Normal) also clears any leftover mute so Cooper always converses after it. 409 while a show runs. |
 | `/api/dance` | `{"key": "…"}` (optional) | Start a LinkCraft dance now (defaults to the configured show dance). |
 | `/api/action` | `{"action": "shake_hand" \| …}` | One gesture, executed by the standalone `x2_action.py`. 409 while a show runs. |
 | `/api/show` | `{"unmute_after": bool}` (texts optional — see below) | Launches `x2_showroom_demo.py`. Refuses (400) when no show dance is configured on this robot or the configured key is not in this robot's library. |
