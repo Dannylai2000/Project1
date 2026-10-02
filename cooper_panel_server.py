@@ -86,7 +86,7 @@ LOGGER = logging.getLogger("cooper_panel")
 # Bumped on every change, in lockstep with PANEL_VERSION in
 # cooper_control_panel.html. The panel shows both and flags a mismatch,
 # so a half-deployed update is visible at a glance.
-SERVER_VERSION = "2026.10.02-20"
+SERVER_VERSION = "2026.10.02-21"
 
 # For the health report's uptime figure.
 SERVER_STARTED = time.time()
@@ -1099,7 +1099,8 @@ class EventRunner:
             return self._proc is not None and self._proc.poll() is None
 
     def start(self, opening: dict | None, message: str,
-              closing: dict | None, pause: float | None = None) -> dict:
+              middle: dict | None, closing: dict | None,
+              pause: float | None = None) -> dict:
         t0 = time.perf_counter()
         with self._lock:
             if self._proc is not None and self._proc.poll() is None:
@@ -1135,6 +1136,9 @@ class EventRunner:
                 cmd += ["--message", message]
                 if pause is not None:
                     cmd += ["--message-pause", str(float(pause))]
+            if middle:
+                cmd += ["--middle-motion", str(middle["motion"]),
+                        "--middle-area", str(middle["area"])]
             if closing:
                 cmd += ["--closing-motion", str(closing["motion"]),
                         "--closing-area", str(closing["area"])]
@@ -1268,7 +1272,7 @@ class PanelConfig:
         return min(max(pause, self.MIN_EVENT_PAUSE), self.MAX_EVENT_PAUSE)
 
     def get_event(self) -> dict:
-        """{"opening": key, "message": text, "closing": key, "pause": s}."""
+        """{"opening", "message", "middle", "closing", "pause"}."""
         with self._lock:
             try:
                 data = json.loads(self._path.read_text())
@@ -1280,14 +1284,17 @@ class PanelConfig:
         return {
             "opening": str(ev.get("opening") or "")[: self.MAX_KEY_LEN],
             "message": str(ev.get("message") or "")[: self.MAX_EVENT_MSG],
+            "middle": str(ev.get("middle") or "")[: self.MAX_KEY_LEN],
             "closing": str(ev.get("closing") or "")[: self.MAX_KEY_LEN],
             "pause": self._clean_pause(ev.get("pause")),
         }
 
-    def set_event(self, opening, message, closing, pause=None) -> dict:
+    def set_event(self, opening, message, middle, closing,
+                  pause=None) -> dict:
         cleaned = {
             "opening": str(opening or "").strip()[: self.MAX_KEY_LEN],
             "message": str(message or "").strip()[: self.MAX_EVENT_MSG],
+            "middle": str(middle or "").strip()[: self.MAX_KEY_LEN],
             "closing": str(closing or "").strip()[: self.MAX_KEY_LEN],
             "pause": self._clean_pause(pause),
         }
@@ -1299,8 +1306,9 @@ class PanelConfig:
             data["event"] = cleaned
             self._path.write_text(
                 json.dumps(data, ensure_ascii=False, indent=2))
-        LOGGER.info("Event saved: opening=%r closing=%r message=%d chars",
-                    cleaned["opening"], cleaned["closing"],
+        LOGGER.info("Event saved: opening=%r middle=%r closing=%r "
+                    "message=%d chars", cleaned["opening"],
+                    cleaned["middle"], cleaned["closing"],
                     len(cleaned["message"]))
         return cleaned
 
@@ -1871,7 +1879,7 @@ def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str,
                                             "timing": timing})
 
                 if self.path == "/api/event_config":
-                    for field in ("opening", "closing"):
+                    for field in ("opening", "middle", "closing"):
                         key = str(body.get(field) or "").strip()
                         if key and key not in ACTIONS:
                             return self._send_json(
@@ -1879,6 +1887,7 @@ def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str,
                                  "error": f"unknown {field} action {key!r}"}, 400)
                     saved = config.set_event(body.get("opening"),
                                              body.get("message"),
+                                             body.get("middle"),
                                              body.get("closing"),
                                              body.get("pause"))
                     return self._send_json({"ok": True, **saved})
@@ -1891,26 +1900,49 @@ def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str,
                         return self._send_json(
                             {"ok": False, "error": "an event is already playing"}, 409)
                     ev = config.get_event()
-                    if not (ev["opening"] or ev["message"] or ev["closing"]):
+                    if not (ev["opening"] or ev["message"] or ev["middle"]
+                            or ev["closing"]):
                         return self._send_json(
                             {"ok": False,
                              "error": "no event configured on this robot — "
-                                      "set the opening action, message or "
-                                      "closing action in the Event card and "
-                                      "press 💾 Save event"}, 400)
+                                      "set the actions and/or message in "
+                                      "the Event card and press 💾 Save "
+                                      "event"}, 400)
                     opening = ACTIONS.get(ev["opening"]) if ev["opening"] else None
+                    middle = ACTIONS.get(ev["middle"]) if ev["middle"] else None
                     closing = ACTIONS.get(ev["closing"]) if ev["closing"] else None
                     if (ev["opening"] and opening is None) or \
+                            (ev["middle"] and middle is None) or \
                             (ev["closing"] and closing is None):
                         return self._send_json(
                             {"ok": False,
                              "error": "the saved event uses an action this "
                                       "API no longer knows — re-save the "
                                       "Event card"}, 400)
-                    timing = events.start(opening, ev["message"], closing,
-                                          pause=ev["pause"])
+                    # Events are performances: make sure Cooper is geared
+                    # up (external mic, show volume) before playing, so
+                    # the audience cannot trigger the assistant mid-event.
+                    auto_geared = False
+                    if not node.mic_geared:
+                        try:
+                            node.gear_up(True)
+                            auto_geared = True
+                        except Exception as exc:
+                            if "not configured" in str(exc):
+                                # No mic-source service on this build —
+                                # play anyway; the runner's mute path
+                                # still stops Cooper answering itself.
+                                LOGGER.warning("Auto gear-up skipped: %s", exc)
+                            else:
+                                return self._send_json(
+                                    {"ok": False,
+                                     "error": "auto gear-up before the "
+                                              f"event failed: {exc}"}, 502)
+                    timing = events.start(opening, ev["message"], middle,
+                                          closing, pause=ev["pause"])
                     timing["server_total_ms"] = server_ms()
                     return self._send_json({"ok": True, "event_running": True,
+                                            "auto_geared": auto_geared,
                                             "timing": timing})
 
                 if self.path == "/api/show":
