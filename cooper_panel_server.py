@@ -86,7 +86,7 @@ LOGGER = logging.getLogger("cooper_panel")
 # Bumped on every change, in lockstep with PANEL_VERSION in
 # cooper_control_panel.html. The panel shows both and flags a mismatch,
 # so a half-deployed update is visible at a glance.
-SERVER_VERSION = "2026.10.02-18"
+SERVER_VERSION = "2026.10.02-19"
 
 # For the health report's uptime figure.
 SERVER_STARTED = time.time()
@@ -1242,12 +1242,13 @@ class PanelConfig:
 
     # The pre-configured special-event moment (Event card on the panel).
     MAX_EVENT_MSG = 1000
-    # Pause between the end of the message and the closing action —
-    # user-tunable per robot, with a floor so the gesture never rides
-    # straight over the last word.
-    MIN_EVENT_PAUSE = 1.0
+    # When the closing action starts, relative to the estimated end of
+    # the message: negative = that many seconds BEFORE the message ends
+    # (gesture overlaps the last words — the show's heart style),
+    # positive = pause after it. User-tunable from the Event card.
+    MIN_EVENT_PAUSE = -10.0
     MAX_EVENT_PAUSE = 30.0
-    DEFAULT_EVENT_PAUSE = 2.0
+    DEFAULT_EVENT_PAUSE = -3.0
 
     def _clean_pause(self, value) -> float:
         try:

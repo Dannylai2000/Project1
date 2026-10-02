@@ -51,11 +51,14 @@ GESTURE_PLAY_S = 4.0
 # The TTS engine's estimated_duration overshoots badly (measured ~9 s too
 # long on the show-suite message), and the overshoot scales with the text —
 # so it is IGNORED for timing. The speech time is estimated from the text
-# itself instead (speech_seconds below), and the panel-configured pause
-# (--message-pause, min MIN_MESSAGE_PAUSE_S) is what separates the end of
-# the message from the closing gesture.
-MIN_MESSAGE_PAUSE_S = 1.0
-DEFAULT_MESSAGE_PAUSE_S = 2.0
+# itself instead (speech_seconds below), and the panel-configured
+# --message-pause says when the closing gesture starts relative to the
+# estimated end of the message: NEGATIVE = that many seconds before the
+# end (the gesture overlaps the last words — accounting for the ~1-2 s a
+# commanded motion takes to become visible), positive = pause after it.
+MIN_MESSAGE_PAUSE_S = -10.0
+DEFAULT_MESSAGE_PAUSE_S = -3.0
+MAX_MESSAGE_PAUSE_S = 30.0
 
 # Speaking rates for the text-based estimate. Latin rate CALIBRATED on the
 # show-suite robot: a 563-char message took ~41 s to speak (journal,
@@ -96,11 +99,13 @@ def run_gesture(node: Node, client, mc_action_service: str,
     return False
 
 
-def speak(node: Node, tts_client, text: str) -> bool:
+def speak(node: Node, tts_client, text: str, trim_s: float = 0.0) -> bool:
     """Speak `text` and wait out its TEXT-BASED duration estimate.
 
-    The engine's own estimated_duration is only printed for reference —
-    it overshoots too much to time the sequence with.
+    `trim_s` returns that many seconds early, so the caller can start
+    the closing gesture while the last words still play. The engine's
+    own estimated_duration is only printed for reference — it overshoots
+    too much to time the sequence with.
     """
     req = PlayTts.Request()
     req.tts_req.text = text
@@ -124,7 +129,7 @@ def speak(node: Node, tts_client, text: str) -> bool:
         return False
 
     engine_s = float(response.tts_resp.estimated_duration) / 1000.0
-    wait_s = speech_seconds(text)
+    wait_s = max(0.0, speech_seconds(text) - max(0.0, trim_s))
     print(f"PlayTts accepted — waiting {wait_s:.1f}s from the text length "
           f"(engine claims {engine_s:.1f}s, ignored)")
     time.sleep(wait_s)
@@ -148,9 +153,11 @@ def main() -> int:
                         help="seconds Stable Stand needs before a retry")
     parser.add_argument("--message-pause", type=float,
                         default=DEFAULT_MESSAGE_PAUSE_S,
-                        help="seconds between the (estimated) end of the "
-                             f"message and the closing gesture; minimum "
-                             f"{MIN_MESSAGE_PAUSE_S}")
+                        help="when the closing gesture starts, relative to "
+                             "the (estimated) end of the message: negative "
+                             "= that many seconds BEFORE the end (overlap, "
+                             f"default {DEFAULT_MESSAGE_PAUSE_S}), positive "
+                             "= pause after it")
     parser.add_argument("--wait", type=float, default=5.0,
                         help="seconds to wait for each service")
     args = parser.parse_args()
@@ -192,12 +199,20 @@ def main() -> int:
             ok &= run_gesture(node, motion_client, args.mc_action_service,
                               opening[0], opening[1], args.stand_settle)
             time.sleep(OPENING_LEAD_S if message else GESTURE_PLAY_S)
+        pause = min(max(args.message_pause, MIN_MESSAGE_PAUSE_S),
+                    MAX_MESSAGE_PAUSE_S)
         if message:
-            ok &= speak(node, tts_client, message)
-            # The user-configured breather between message and closing
-            # gesture; also keeps the mic muted through any speech tail
-            # our text-based estimate missed.
-            time.sleep(max(MIN_MESSAGE_PAUSE_S, args.message_pause))
+            # Negative pause = start the closing gesture that many seconds
+            # before the estimated end of the message (the gesture's own
+            # ~1-2 s command latency eats part of the overlap).
+            trim = -pause if (closing and pause < 0) else 0.0
+            ok &= speak(node, tts_client, message, trim_s=trim)
+            if closing and pause > 0:
+                time.sleep(pause)
+            elif not closing:
+                # No closing gesture: linger briefly so the mic stays
+                # muted through any speech tail the estimate missed.
+                time.sleep(2.0)
         if closing:
             ok &= run_gesture(node, motion_client, args.mc_action_service,
                               closing[0], closing[1], args.stand_settle)
