@@ -86,7 +86,7 @@ LOGGER = logging.getLogger("cooper_panel")
 # Bumped on every change, in lockstep with PANEL_VERSION in
 # cooper_control_panel.html. The panel shows both and flags a mismatch,
 # so a half-deployed update is visible at a glance.
-SERVER_VERSION = "2026.10.02-25"
+SERVER_VERSION = "2026.10.08-26"
 
 # For the health report's uptime figure.
 SERVER_STARTED = time.time()
@@ -1101,7 +1101,8 @@ class EventRunner:
     def start(self, opening: dict | None, message: str,
               middle: dict | None, closing: dict | None,
               pause: float | None = None,
-              bt_speaker: bool = False) -> dict:
+              bt_speaker: bool = False, dance_key: str = "",
+              dance_duration: float = 33.0) -> dict:
         t0 = time.perf_counter()
         with self._lock:
             if self._proc is not None and self._proc.poll() is None:
@@ -1130,6 +1131,9 @@ class EventRunner:
             # journal as they happen (buffered, they all appear at exit
             # with one timestamp — useless for timing diagnostics).
             cmd = [sys.executable, "-u", str(EVENT_SCRIPT)]
+            if dance_key:
+                cmd += ["--dance-key", dance_key,
+                        "--dance-duration", str(dance_duration)]
             if opening:
                 cmd += ["--opening-motion", str(opening["motion"]),
                         "--opening-area", str(opening["area"])]
@@ -1289,6 +1293,7 @@ class PanelConfig:
         return {
             "opening": str(ev.get("opening") or "")[: self.MAX_KEY_LEN],
             "message": str(ev.get("message") or "")[: self.MAX_EVENT_MSG],
+            "dance_key": str(ev.get("dance_key") or "")[: self.MAX_KEY_LEN],
             "middle": str(ev.get("middle") or "")[: self.MAX_KEY_LEN],
             "closing": str(ev.get("closing") or "")[: self.MAX_KEY_LEN],
             "pause": self._clean_pause(ev.get("pause")),
@@ -1296,10 +1301,11 @@ class PanelConfig:
         }
 
     def set_event(self, opening, message, middle, closing,
-                  pause=None, bt_speaker=False) -> dict:
+                  pause=None, bt_speaker=False, dance_key="") -> dict:
         cleaned = {
             "opening": str(opening or "").strip()[: self.MAX_KEY_LEN],
             "message": str(message or "").strip()[: self.MAX_EVENT_MSG],
+            "dance_key": str(dance_key or "").strip()[: self.MAX_KEY_LEN],
             "middle": str(middle or "").strip()[: self.MAX_KEY_LEN],
             "closing": str(closing or "").strip()[: self.MAX_KEY_LEN],
             "pause": self._clean_pause(pause),
@@ -1897,7 +1903,8 @@ def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str,
                                              body.get("middle"),
                                              body.get("closing"),
                                              body.get("pause"),
-                                             body.get("bt_speaker", False))
+                                             body.get("bt_speaker", False),
+                                             body.get("dance_key", ""))
                     return self._send_json({"ok": True, **saved})
 
                 if self.path == "/api/event":
@@ -1909,7 +1916,7 @@ def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str,
                             {"ok": False, "error": "an event is already playing"}, 409)
                     ev = config.get_event()
                     if not (ev["opening"] or ev["message"] or ev["middle"]
-                            or ev["closing"]):
+                            or ev["closing"] or ev["dance_key"]):
                         return self._send_json(
                             {"ok": False,
                              "error": "no event configured on this robot — "
@@ -1927,6 +1934,16 @@ def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str,
                              "error": "the saved event uses an action this "
                                       "API no longer knows — re-save the "
                                       "Event card"}, 400)
+                    dance_duration = 33.0
+                    if ev["dance_key"]:
+                        if not any(d["key"] == ev["dance_key"] for d in library.refresh()):
+                            return self._send_json(
+                                {"ok": False, "error": "the event dance is not in this robot's library — select another dance and save the Event"}, 400)
+                        dance_duration = config.get_dance_times().get(ev["dance_key"])
+                        if dance_duration is None or dance_duration == 999:
+                            dance_duration = library.duration_for(ev["dance_key"])
+                        if dance_duration is None:
+                            dance_duration = 33.0
                     # Events are performances: make sure Cooper is geared
                     # up (external mic, show volume) before playing, so
                     # the audience cannot trigger the assistant mid-event.
@@ -1948,7 +1965,9 @@ def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str,
                                               f"event failed: {exc}"}, 502)
                     timing = events.start(opening, ev["message"], middle,
                                           closing, pause=ev["pause"],
-                                          bt_speaker=ev["bt_speaker"])
+                                          bt_speaker=ev["bt_speaker"],
+                                          dance_key=ev["dance_key"],
+                                          dance_duration=dance_duration)
                     timing["server_total_ms"] = server_ms()
                     return self._send_json({"ok": True, "event_running": True,
                                             "auto_geared": auto_geared,

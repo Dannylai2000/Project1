@@ -389,7 +389,7 @@
   <section>
     <h2>Event</h2>
     <div class="hint">A pre-configured special-event moment: opening
-      action → event message → middle action → closing action (any part
+      action → event message → dance → middle action → closing action (any part
       can be left out). ▶ Play gears Cooper up first if needed, so the
       audience cannot trigger the assistant mid-event — select Normal in
       MIC mode afterwards to converse again. Saved on both robots.</div>
@@ -401,6 +401,11 @@
       <label for="evMsg">Event message</label>
       <textarea id="evMsg" placeholder="What Cooper says after the opening action (blank = actions only)"></textarea>
     </div>
+    <div class="row audioRow">
+      <label class="audioName" for="evDance">Dance</label>
+      <select id="evDance"><option value="">— no dance —</option></select>
+    </div>
+    <div class="hint">Uses this robot's dance library and the song's play time from Settings.</div>
     <div class="row audioRow">
       <span class="audioName">Middle</span>
       <select id="evMid"><option value="">— no middle action —</option></select>
@@ -609,7 +614,7 @@
 
       <h3>Event</h3>
       <p>A pre-configured moment for special occasions: an <b>opening
-      action</b>, an <b>event message</b> Cooper speaks, a <b>middle
+      action</b>, an <b>event message</b> Cooper speaks, an optional <b>dance</b>, a <b>middle
       action</b>, and a <b>closing action</b> — any part can be left out.
       Pick the actions from the same list as the Actions card, type the
       message, press <b>💾 Save event</b> (saved on both robots when both
@@ -619,8 +624,12 @@
       assistant mid-event; this adds ~15 s before the opening action), and
       MIC mode stays geared afterwards — select <b>Normal</b> to let
       Cooper converse again.
+      The Dance dropdown lists this robot's songs and uses the play time
+      configured in Settings. After the dance Cooper returns to Stable
+      Stand before the next gesture. If the backup robot has different
+      song IDs, select its corresponding dance and save its Event.
       <b>Next action</b> sets when the first action after the message
-      begins (the middle action when one is set, else the closing one) —
+      begins (the dance when selected, otherwise the middle or closing action) —
       e.g. "3 s before the message ends" starts the gesture on the last
       words (a commanded motion takes a second or two to become visible),
       while "after" choices leave a pause. The speech length is estimated from the text, so the timing
@@ -813,7 +822,7 @@
 
   // Bumped on every change, in lockstep with SERVER_VERSION in
   // cooper_panel_server.py. Shown top-right; amber = page and API differ.
-  const PANEL_VERSION = "2026.10.02-25";
+  const PANEL_VERSION = "2026.10.08-26";
   $("verChip").textContent = "v" + PANEL_VERSION;
 
   function status(msg, cls = "") {
@@ -1601,7 +1610,7 @@
     $("evPlay").disabled = off;
     $("evPlay").textContent = eventRunning ? "⏳ Event playing…" : "▶ Play event";
     $("evSave").disabled = !online;
-    $("evOpen").disabled = $("evMid").disabled = $("evClose").disabled =
+    $("evOpen").disabled = $("evDance").disabled = $("evMid").disabled = $("evClose").disabled =
       $("evMsg").disabled = $("evPause").disabled =
       $("evBt").disabled = !online;
   }
@@ -1672,6 +1681,16 @@
   // every device plays the same event. Runs x2_event.py on the server.
   let evDirty = false;
 
+  function renderEventDance(key = $("evDance").value) {
+    const sel = $("evDance");
+    sel.replaceChildren(new Option("— no dance —", ""));
+    allDances.forEach(d => sel.add(new Option(danceLabel(d), d.key)));
+    if (key && !allDances.some(d => d.key === key)) {
+      sel.add(new Option("Unavailable on this robot: " + key.slice(-16), key));
+    }
+    sel.value = key;
+  }
+
   function evRobotName() {
     return activeRobot === "secondary" ? "secondary robot" : "primary robot";
   }
@@ -1687,6 +1706,7 @@
   }
   $("evOpen").addEventListener("change", evMarkDirty);
   $("evMid").addEventListener("change", evMarkDirty);
+  $("evDance").addEventListener("change", evMarkDirty);
   $("evClose").addEventListener("change", evMarkDirty);
   $("evMsg").addEventListener("input", evMarkDirty);
   $("evPause").addEventListener("change", evMarkDirty);
@@ -1717,6 +1737,7 @@
     try {
       const ev = await api("/api/event");
       $("evMsg").value = ev.message || "";
+      renderEventDance(ev.dance_key || "");
       evSetPauseSelect(typeof ev.pause === "number" ? ev.pause : -3);
       $("evBt").checked = ev.bt_speaker === true;
       for (const [id, key] of [["evOpen", ev.opening || ""],
@@ -1727,7 +1748,7 @@
         if (sel.selectedIndex < 0) sel.selectedIndex = 0;
       }
       evDirty = false;
-      if (ev.opening || ev.message || ev.closing) {
+      if (ev.opening || ev.message || ev.dance_key || ev.middle || ev.closing) {
         evSetState(`✓ Event loaded from the ${evRobotName()} (${activeAddr()}).`, "ok");
       } else {
         evSetState(`No event configured on the ${evRobotName()} yet — ` +
@@ -1745,6 +1766,7 @@
     const payload = {
       opening: $("evOpen").value,
       message: $("evMsg").value.trim(),
+      dance_key: $("evDance").value,
       middle: $("evMid").value,
       closing: $("evClose").value,
       pause: evPauseValue(),
@@ -1788,7 +1810,7 @@
       eventRunning = true;
       status(data.auto_geared
         ? "Geared up automatically — event playing. Select Normal in MIC mode afterwards to converse."
-        : "Event playing: opening → message → middle → closing.", "ok");
+        : "Event playing: opening → message → dance → middle → closing.", "ok");
     } catch (e) {
       status(`Event failed: ${e.message}`, "err");
     }
@@ -1809,6 +1831,7 @@
         api("/api/shortlist"),
       ]);
       allDances = dRes.dances;
+      renderEventDance();
       shortlist = new Set(sRes.shortlist);
       danceTimes = sRes.times || {};
       showDance = sRes.show_dance || "";

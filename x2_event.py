@@ -3,7 +3,7 @@
 Standalone companion to the Cooper Control Panel: the panel server invokes
 this script when ▶ Play event is pressed. The sequence is
 
-    opening gesture → event message (TTS) → middle gesture → closing gesture
+    opening gesture → event message (TTS) → dance → middle gesture → closing gesture
 
 and every part is optional — the panel stores which gestures and text to
 use in cooper_panel_config.json. It can also be tested by hand:
@@ -30,7 +30,7 @@ import uuid
 from contextlib import suppress
 
 import rclpy
-from aimdk_msgs.srv import PlayTts, SetMcPresetMotion
+from aimdk_msgs.srv import ExecuteActionResource, GetRobotResources, PlayTts, SetMcPresetMotion
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 
@@ -181,14 +181,64 @@ def speak(node: Node, tts_client, text: str, trim_s: float = 0.0,
     return True
 
 
+def run_dance(node: Node, key: str, duration: float, wait: float) -> bool:
+    """Execute a LinkCraft resource using the same request shape as the show."""
+    def call(client, request):
+        with suppress(AttributeError):
+            request.header.stamp = node.get_clock().now().to_msg()
+        future = client.call_async(request)
+        done = threading.Event()
+        future.add_done_callback(lambda _: done.set())
+        if not done.wait(30.0) or not future.done():
+            raise RuntimeError("LinkCraft request timed out")
+        return future.result()
+
+    clients = []
+    try:
+        resources = node.create_client(GetRobotResources, "/aimdk_5Fmsgs/srv/GetRobotResources")
+        clients.append(resources)
+        execute = node.create_client(ExecuteActionResource, "/aimdk_5Fmsgs/srv/ExecuteActionResource")
+        clients.append(execute)
+        if not all(c.wait_for_service(timeout_sec=wait) for c in clients):
+            raise RuntimeError("LinkCraft service unavailable")
+        response = call(resources, GetRobotResources.Request())
+        resource = next((r for r in response.robot_resources if r.resource_key == key), None)
+        if resource is None:
+            raise RuntimeError("event dance not found on this robot")
+        request = ExecuteActionResource.Request()
+        request.resource_key = key
+        request.resource_version = resource.current_version.version
+        request.slaves = []
+        request.meta = ('{"resource_type": "BODY_MONTION"}' if "onnx" in key.lower()
+                        else '{"resource_type": "ARM_MONTION"}')
+        response = call(execute, request)
+        code, message = 0, ""
+        with suppress(AttributeError, TypeError, ValueError):
+            code = int(response.header.header.code)
+            message = str(response.header.message or "")
+        if code != 0 or any(w in message.lower() for w in ("fail", "error", "reject")):
+            raise RuntimeError(f"event dance rejected ({code}): {message}")
+        print(f"Event dance started; waiting {duration:.1f}s")
+        time.sleep(max(0.0, duration))
+        return True
+    except Exception as exc:
+        print(f"Event dance failed: {exc}", file=sys.stderr)
+        return False
+    finally:
+        for client in clients:
+            node.destroy_client(client)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Play the pre-configured event: opening gesture → "
-                    "message → middle gesture → closing gesture"
+                    "message → dance → middle gesture → closing gesture"
     )
     parser.add_argument("--opening-motion", type=int, default=None)
     parser.add_argument("--opening-area", type=int, default=None)
     parser.add_argument("--message", default="")
+    parser.add_argument("--dance-key", default="")
+    parser.add_argument("--dance-duration", type=float, default=33.0)
     parser.add_argument("--middle-motion", type=int, default=None)
     parser.add_argument("--middle-area", type=int, default=None)
     parser.add_argument("--closing-motion", type=int, default=None)
@@ -224,9 +274,9 @@ def main() -> int:
     closing = (args.closing_motion, args.closing_area) \
         if args.closing_motion is not None and args.closing_area is not None else None
     message = args.message.strip()
-    if not opening and not message and not middle and not closing:
+    if not opening and not message and not args.dance_key and not middle and not closing:
         print("nothing to play: give --opening-motion/--opening-area, "
-              "--message, --middle-motion/--middle-area and/or "
+              "--message, --dance-key, --middle-motion/--middle-area and/or "
               "--closing-motion/--closing-area", file=sys.stderr)
         return 1
 
@@ -267,7 +317,7 @@ def main() -> int:
                     MAX_MESSAGE_PAUSE_S)
         # The pause offset times the FIRST gesture after the message
         # (the middle one when set, else the closing one).
-        after_msg = middle or closing
+        after_msg = args.dance_key or middle or closing
         if message:
             # Negative pause = start that gesture this many seconds
             # before the estimated end of the message (the gesture's own
@@ -284,6 +334,12 @@ def main() -> int:
                 # No gesture follows: linger briefly so the mic stays
                 # muted through any speech tail the estimate missed.
                 time.sleep(2.0)
+        if args.dance_key:
+            if not run_dance(node, args.dance_key, args.dance_duration, args.wait):
+                return 2  # Do not launch gestures while dance state is uncertain.
+            if middle or closing:
+                if not stand_default(node, args.mc_action_service, args.stand_settle):
+                    return 2
         if middle:
             ok &= run_gesture(node, motion_client, args.mc_action_service,
                               middle[0], middle[1], args.stand_settle)

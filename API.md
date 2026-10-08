@@ -86,7 +86,7 @@ or `"ok": false` with an `"error"` string.
 | `/api/shortlist` | `shortlist` (ticked keys), `times` (`{key: seconds}`, 999 = full song), `show_dance` (the configured dance key). |
 | `/api/messages` | `active` group name + `groups`: `{name: {guestName, greetAM, greetPM, introMsg, thankYouMsg, goodbyeMsg}}` — this robot's message store. |
 | `/api/actions` | `actions`: `[{key, label, emoji}]` for the gesture dropdown. |
-| `/api/event` | `opening`, `middle`, `closing` (action keys), `message`, `pause` (when the first action after the message starts, relative to the estimated message end: negative = s before, positive = s after) — this robot's pre-configured event — plus `event_running`. |
+| `/api/event` | `opening`, `middle`, `closing` (action keys), `message`, `dance_key` (optional LinkCraft resource ID), `pause` (when the first action or dance after the message starts, relative to the estimated message end: negative = s before, positive = s after) — this robot's pre-configured event — plus `event_running`. |
 
 ### Control (POST, PIN required via `X-Pin`)
 
@@ -102,10 +102,17 @@ or `"ok": false` with an `"error"` string.
 | `/api/shortlist` | any of `shortlist`, `times`, `show_dance` | Save the per-robot dance settings. |
 | `/api/messages` | `{"active": name, "groups": {...}}` | Replace this robot's message store (sanitized: ≤20 groups, field whitelist, 500-char texts). |
 | `/api/event_config` | `{"opening": key, "message": text, "middle": key, "closing": key, "pause": s, "bt_speaker": bool}` | Save this robot's event (each part optional; action keys validated, message ≤1000 chars, pause clamped to −10…30 s, default −3; `bt_speaker` adds a TTS wake-up primer + ~1 s silent lead-in for an external Bluetooth speaker, which otherwise swallows the first words). The panel mirrors event and message saves to the other robot when one is configured. |
-| `/api/event` | `{}` | Play the pre-configured event via `x2_event.py`: opening gesture → message (TTS) → middle gesture → closing gesture. **Gears Cooper up first** when MIC mode is Normal (`auto_geared: true` in the reply; adds ~15 s) so the audience can't trigger the assistant mid-event; MIC mode stays geared after — select Normal to converse. 400 when nothing is configured; 409 while a show or another event runs. |
+| `/api/event` | `{}` | Play the pre-configured event via `x2_event.py`: opening gesture → message (TTS) → optional dance → middle gesture → closing gesture. **Gears Cooper up first** when MIC mode is Normal (`auto_geared: true` in the reply; adds ~15 s) so the audience can't trigger the assistant mid-event; MIC mode stays geared after — select Normal to converse. 400 when nothing is configured or the saved dance is absent from this robot; 409 while a show or another event runs. |
 | `/api/songs_seen` | `{}` | Acknowledge the ✨ new-song alert. |
 | `/api/restart` | `{}` | API exits; the robot's watchdog/socket revives it in seconds. 409 during a show. |
 | `/api/update` | `{}` | `git pull --ff-only` on the robot, then restart when something changed. Returns the pull output. 409 during a show. |
+
+**Event dance**: `/api/event_config` also accepts `dance_key` (blank = no
+dance). The Event dropdown lists the connected robot's whole dance library.
+Playback uses the song's play time from Settings, then measured duration,
+then 33 seconds; 999 requests measured duration. Stable Stand runs before
+any following gesture. Mirrored events retain the resource ID, so if the
+backup has different IDs, select its corresponding dance and save there.
 
 **Show texts**: the show speaks the robot's stored ACTIVE message group.
 A blank field means the built-in text in `x2_showroom_demo.py` (the
