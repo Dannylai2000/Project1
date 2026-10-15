@@ -387,19 +387,26 @@
   </section>
 
   <section>
-    <h2>Event</h2>
+    <h2>Event scenes</h2>
+    <div class="field">
+      <label for="evScene">Edit preset</label>
+      <select id="evScene">
+        <option value="1">Scene 1 — Introduction</option>
+        <option value="2">Scene 2 — Scripted answer</option>
+      </select>
+    </div>
     <div class="hint">A pre-configured special-event moment: opening
       action → event message → dance → middle action → closing action (any part
       can be left out). ▶ Play gears Cooper up first if needed, so the
       audience cannot trigger the assistant mid-event — select Normal in
-      MIC mode afterwards to converse again. Saved on both robots.</div>
+      MIC mode afterwards to converse again. Each scene is saved separately on both robots. Scene 1 keeps your existing Event. Prepare both before the event; trigger each on cue.</div>
     <div class="row audioRow">
       <span class="audioName">Opening</span>
       <select id="evOpen"><option value="">— no opening action —</option></select>
     </div>
     <div class="field">
       <label for="evMsg">Event message</label>
-      <textarea id="evMsg" placeholder="What Cooper says after the opening action (blank = actions only)"></textarea>
+      <textarea id="evMsg" maxlength="1000" placeholder="What Cooper says after the opening action (blank = actions only)"></textarea>
     </div>
     <div class="row audioRow">
       <label class="audioName" for="evDance">Dance</label>
@@ -437,8 +444,9 @@
         first words being cut off; leave off for Cooper's own speaker)</label>
     </div>
     <div class="row">
-      <button class="secondary" id="evSave">💾 Save event</button>
-      <button id="evPlay">▶ Play event</button>
+      <button class="secondary" id="evSave">💾 Save scene</button>
+      <button id="evPlay">▶ Play Scene 1 — Introduction</button>
+      <button id="evPlay2">▶ Play Scene 2 — Scripted answer</button>
     </div>
     <div class="hint" id="evState">—</div>
   </section>
@@ -612,12 +620,13 @@
       affected. Execute is disabled while a full show is running so
       gestures cannot interrupt the performance.</p>
 
-      <h3>Event</h3>
+      <h3>Event scenes</h3>
+      <p>Select Scene 1 (introduction) or Scene 2 (scripted answer), edit and Save each separately. Each has its own Play button. Scene 1 preserves the previous Event. Both stay geared for performance: cue the scripted answer manually after the chairperson finishes; no live assistant is needed. There is no automatic ten-minute timer.</p>
       <p>A pre-configured moment for special occasions: an <b>opening
       action</b>, an <b>event message</b> Cooper speaks, an optional <b>dance</b>, a <b>middle
       action</b>, and a <b>closing action</b> — any part can be left out.
       Pick the actions from the same list as the Actions card, type the
-      message, press <b>💾 Save event</b> (saved on both robots when both
+      message, press <b>💾 Save scene</b> (saved on both robots when both
       are set up), then <b>▶ Play event</b> runs the sequence. Play first
       <b>gears Cooper up automatically</b> when MIC mode is Normal
       (external mic, show volume — the audience cannot trigger the
@@ -822,7 +831,7 @@
 
   // Bumped on every change, in lockstep with SERVER_VERSION in
   // cooper_panel_server.py. Shown top-right; amber = page and API differ.
-  const PANEL_VERSION = "2026.10.08-26";
+  const PANEL_VERSION = "2026.10.15-1";
   $("verChip").textContent = "v" + PANEL_VERSION;
 
   function status(msg, cls = "") {
@@ -1607,12 +1616,12 @@
     const off = showRunning || eventRunning || !online;
     $("actionRun").disabled = off;
     $("actionSel").disabled = off;
-    $("evPlay").disabled = off;
-    $("evPlay").textContent = eventRunning ? "⏳ Event playing…" : "▶ Play event";
-    $("evSave").disabled = !online;
+    $("evPlay").disabled = $("evPlay2").disabled = off || evStarting || evSaving || !evReady;
+    $("evSave").disabled = !online || !evReady || evSaving;
     $("evOpen").disabled = $("evDance").disabled = $("evMid").disabled = $("evClose").disabled =
       $("evMsg").disabled = $("evPause").disabled =
-      $("evBt").disabled = !online;
+      $("evBt").disabled = !online || !evReady || evSaving;
+    $("evScene").disabled = !online || evStarting || evSaving || !evReady;
   }
 
   async function loadActions() {
@@ -1680,6 +1689,20 @@
   // Pre-configured on the connected robot (cooper_panel_config.json), so
   // every device plays the same event. Runs x2_event.py on the server.
   let evDirty = false;
+  let evReady = false;
+  let evStarting = false;
+  let evSaving = false;
+  let evLoadedScene = "1";
+  const evPath = (scene = $("evScene").value) => `/api/event_scene${scene}`;
+  const evConfigPath = () => `/api/event_config_scene${$("evScene").value}`;
+
+  $("evScene").addEventListener("change", () => {
+    if (evDirty && !confirm("Discard unsaved changes to this scene?")) {
+      $("evScene").value = evLoadedScene;
+      return;
+    }
+    loadEventConfig();
+  });
 
   function renderEventDance(key = $("evDance").value) {
     const sel = $("evDance");
@@ -1702,7 +1725,7 @@
 
   function evMarkDirty() {
     evDirty = true;
-    evSetState("Changes not saved yet — press 💾 Save event.", "warn");
+    evSetState("Changes not saved yet — press 💾 Save scene.", "warn");
   }
   $("evOpen").addEventListener("change", evMarkDirty);
   $("evMid").addEventListener("change", evMarkDirty);
@@ -1735,7 +1758,13 @@
 
   async function loadEventConfig() {
     try {
-      const ev = await api("/api/event");
+      evReady = false;
+      setActionButtonsEnabled();
+      const scene = $("evScene").value;
+      const ev = await api(evPath(scene));
+      if (scene !== $("evScene").value) return;
+      evLoadedScene = scene;
+      evReady = true;
       $("evMsg").value = ev.message || "";
       renderEventDance(ev.dance_key || "");
       evSetPauseSelect(typeof ev.pause === "number" ? ev.pause : -3);
@@ -1749,19 +1778,23 @@
       }
       evDirty = false;
       if (ev.opening || ev.message || ev.dance_key || ev.middle || ev.closing) {
-        evSetState(`✓ Event loaded from the ${evRobotName()} (${activeAddr()}).`, "ok");
+        evSetState(`✓ Scene ${scene} loaded from the ${evRobotName()} (${activeAddr()}).`, "ok");
       } else {
-        evSetState(`No event configured on the ${evRobotName()} yet — ` +
-                   "pick the actions, type the message, press 💾 Save event.", "");
+        evSetState(`No scene ${scene} configured on the ${evRobotName()} yet — ` +
+                   "pick the actions, type the message, press 💾 Save scene.", "");
       }
     } catch (e) {
-      evSetState("The Event card needs an API update on Cooper " +
+      evSetState("Scene presets need an API update on Cooper " +
                  "(🩺 Diagnose → ⬆ Update & restart).", "warn");
+    } finally {
+      setActionButtonsEnabled();
     }
   }
 
   $("evSave").addEventListener("click", async () => {
-    $("evSave").disabled = true;
+    evSaving = true;
+    setActionButtonsEnabled();
+    const path = evConfigPath();
     evSetState("Saving…", "");
     const payload = {
       opening: $("evOpen").value,
@@ -1773,12 +1806,12 @@
       bt_speaker: $("evBt").checked,
     };
     try {
-      await api("/api/event_config", {
+      await api(path, {
         method: "POST", body: JSON.stringify(payload),
       });
       evDirty = false;
       // The event is shared content — copy it to the other robot too.
-      const warn = await mirrorToOther("/api/event_config", payload);
+      const warn = await mirrorToOther(path, payload);
       if (warn) {
         evSetState(`✓ Saved on the ${evRobotName()} (${activeAddr()})${warn}`,
                    "warn");
@@ -1793,20 +1826,23 @@
       evSetState(`Saving failed: ${e.message}`, "warn");
       status(`Saving the event failed: ${e.message}`, "err");
     } finally {
-      $("evSave").disabled = !online;
+      evSaving = false;
+      setActionButtonsEnabled();
     }
   });
 
-  $("evPlay").addEventListener("click", async () => {
-    if (evDirty) {
-      status("Save the event first — press 💾 Save event.", "err");
+  async function playScene(scene) {
+    if (!evReady || evStarting || evSaving || showRunning || eventRunning) return;
+    if (evDirty && scene === $("evScene").value) {
+      status("Save the event first — press 💾 Save scene.", "err");
       return;
     }
-    $("evPlay").disabled = true;
-    status("Starting the event… (gearing up first if needed — up to ~20 s)", "ok");
+    evStarting = true;
+    setActionButtonsEnabled();
+    status(`Starting Scene ${scene}` + "… (gearing up first if needed — up to ~20 s)", "ok");
     try {
-      const data = await api("/api/event", { method: "POST", body: "{}" });
-      logDiag("Event", data);
+      const data = await api(evPath(scene), { method: "POST", body: "{}" });
+      logDiag(`Scene ${scene}`, data);
       eventRunning = true;
       status(data.auto_geared
         ? "Geared up automatically — event playing. Select Normal in MIC mode afterwards to converse."
@@ -1814,8 +1850,11 @@
     } catch (e) {
       status(`Event failed: ${e.message}`, "err");
     }
+    evStarting = false;
     setActionButtonsEnabled();
-  });
+  }
+  $("evPlay").addEventListener("click", () => playScene("1"));
+  $("evPlay2").addEventListener("click", () => playScene("2"));
 
   // The robot's dance service (GetRobotResources) belongs to AgiBot's own
   // software, which takes minutes after power-on — while the API (armed
