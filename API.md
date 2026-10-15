@@ -88,6 +88,18 @@ or `"ok": false` with an `"error"` string.
 | `/api/actions` | `actions`: `[{key, label, emoji}]` for the gesture dropdown. |
 | `/api/event` | `opening`, `middle`, `closing` (action keys), `message`, `dance_key` (optional LinkCraft resource ID), `pause` (when the first action or dance after the message starts, relative to the estimated message end: negative = s before, positive = s after) — this robot's pre-configured event — plus `event_running`. |
 
+Scene presets (v2026.10.15-1): `GET /api/event_scene1` and
+`GET /api/event_scene2` return the same fields as `/api/event`.
+`POST /api/event_config_scene1` and `POST /api/event_config_scene2`
+accept the same body as `/api/event_config`, saving each preset independently.
+`POST /api/event_scene1` and `POST /api/event_scene2` with `{}` play the
+respective saved preset with the existing PIN, auto-gear-up and busy checks.
+Legacy `/api/event` and `/api/event_config` remain aliases for Scene 1.
+Scene 1 uses the existing `event` config entry; Scene 2 uses `event_scene2`.
+The panel mirrors each scene separately and queues separate copies when the
+backup is unavailable. Older APIs reject the new routes; update the robot API
+and hosted HTML together before using scenes.
+
 ### Control (POST, PIN required via `X-Pin`)
 
 | Endpoint | Body | Effect |

@@ -255,6 +255,26 @@ The show script also accepts the dance directly:
 python3 x2_showroom_demo.py --dance-key linkcraft_resource_onnx_... --dance-duration 30
 ```
 
+### Event scenes for a panel discussion
+
+In **Event scenes**, select **Scene 1 — Introduction**, choose the wave,
+enter the introduction and **Save scene**. Select **Scene 2 — Scripted
+answer**, enter the prepared answer with optional gestures, and save again.
+Both presets persist independently on the robot and are copied to a configured
+backup; the panel reports any queued copy. The previous Event becomes Scene 1.
+Each scene has its own Play button, independent of the editor selection.
+Unsaved edits must be saved before playing that scene; changing the editor
+selection asks before discarding edits.
+
+Cue Scene 1 at the introduction and Scene 2 after the chairperson's question.
+Playback automatically gears up when needed and leaves Cooper geared, avoiding
+live assistant responses. There is no ten-minute timer; rehearse startup timing
+and optionally gear up in advance. For Scene 3, position Cooper using the
+physical controller, then play the robot's Tai Chi resource with **Play dance
+only** once stationary and ready. Navigation remains outside this panel.
+Update both the robot API and hosted HTML to **v2026.10.15-1**; scenes require
+the new API. Real robot playback must be rehearsed on the hardware.
+
 ## AgiBot X2 — Listening Toggle (simulated)
 
 The AgiBot X2's microphones stay open by default so it can respond to the

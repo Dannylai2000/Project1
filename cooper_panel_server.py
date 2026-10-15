@@ -86,7 +86,7 @@ LOGGER = logging.getLogger("cooper_panel")
 # Bumped on every change, in lockstep with PANEL_VERSION in
 # cooper_control_panel.html. The panel shows both and flags a mismatch,
 # so a half-deployed update is visible at a glance.
-SERVER_VERSION = "2026.10.08-26"
+SERVER_VERSION = "2026.10.15-1"
 
 # For the health report's uptime figure.
 SERVER_STARTED = time.time()
@@ -1280,14 +1280,14 @@ class PanelConfig:
             pause = self.DEFAULT_EVENT_PAUSE
         return min(max(pause, self.MIN_EVENT_PAUSE), self.MAX_EVENT_PAUSE)
 
-    def get_event(self) -> dict:
+    def get_event(self, scene="1") -> dict:
         """{"opening", "message", "middle", "closing", "pause"}."""
         with self._lock:
             try:
                 data = json.loads(self._path.read_text())
             except (OSError, json.JSONDecodeError):
                 data = {}
-        ev = data.get("event")
+        ev = data.get("event" if scene == "1" else "event_scene2")
         if not isinstance(ev, dict):
             ev = {}
         return {
@@ -1301,7 +1301,7 @@ class PanelConfig:
         }
 
     def set_event(self, opening, message, middle, closing,
-                  pause=None, bt_speaker=False, dance_key="") -> dict:
+                  pause=None, bt_speaker=False, dance_key="", scene="1") -> dict:
         cleaned = {
             "opening": str(opening or "").strip()[: self.MAX_KEY_LEN],
             "message": str(message or "").strip()[: self.MAX_EVENT_MSG],
@@ -1316,7 +1316,7 @@ class PanelConfig:
                 data = json.loads(self._path.read_text())
             except (OSError, json.JSONDecodeError):
                 data = {}
-            data["event"] = cleaned
+            data["event" if scene == "1" else "event_scene2"] = cleaned
             self._path.write_text(
                 json.dumps(data, ensure_ascii=False, indent=2))
         LOGGER.info("Event saved: opening=%r middle=%r closing=%r "
@@ -1728,8 +1728,8 @@ def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str,
                                         "show_dance": config.get_show_dance()})
             if self.path == "/api/messages":
                 return self._send_json({"ok": True, **messages.get()})
-            if self.path == "/api/event":
-                return self._send_json({"ok": True, **config.get_event(),
+            if self.path in ("/api/event", "/api/event_scene1", "/api/event_scene2"):
+                return self._send_json({"ok": True, **config.get_event("2" if self.path.endswith("scene2") else "1"),
                                         "event_running": events.running()})
             if self.path == "/api/actions":
                 actions = [
@@ -1891,7 +1891,8 @@ def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str,
                     return self._send_json({"ok": True, "action": action["label"],
                                             "timing": timing})
 
-                if self.path == "/api/event_config":
+                if self.path in ("/api/event_config", "/api/event_config_scene1",
+                                 "/api/event_config_scene2"):
                     for field in ("opening", "middle", "closing"):
                         key = str(body.get(field) or "").strip()
                         if key and key not in ACTIONS:
@@ -1904,17 +1905,18 @@ def make_handler(node: CooperPanelNode, shows: ShowRunner, pin: str,
                                              body.get("closing"),
                                              body.get("pause"),
                                              body.get("bt_speaker", False),
-                                             body.get("dance_key", ""))
+                                             body.get("dance_key", ""),
+                                             scene="2" if self.path.endswith("scene2") else "1")
                     return self._send_json({"ok": True, **saved})
 
-                if self.path == "/api/event":
+                if self.path in ("/api/event", "/api/event_scene1", "/api/event_scene2"):
                     if shows.running():
                         return self._send_json(
                             {"ok": False, "error": "a show is running — wait for it to finish"}, 409)
                     if events.running():
                         return self._send_json(
                             {"ok": False, "error": "an event is already playing"}, 409)
-                    ev = config.get_event()
+                    ev = config.get_event("2" if self.path.endswith("scene2") else "1")
                     if not (ev["opening"] or ev["message"] or ev["middle"]
                             or ev["closing"] or ev["dance_key"]):
                         return self._send_json(
